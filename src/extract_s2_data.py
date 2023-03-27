@@ -180,12 +180,12 @@ def get_s2_spectra(
         # don't need to run all simulations all the time
         scene_month = pd.to_datetime(metadata.sensing_time.iloc[0]).month
         pheno_phase_selection = None
-        if scene_month in [10,11,12,1,2,3,4]:
-            pheno_phase_selection = ['all_phases', 'germination-endoftillering', 'stemelongation-endofheading']
-        elif scene_month in [3,4,5]:
-            pheno_phase_selection = ['all_phases', 'germination-endoftillering', 'stemelongation-endofheading']
+        if scene_month in [10,11,12,1,2]:
+            pheno_phase_selection = ['germination-endoftillering']
+        elif scene_month in [3,4]:
+            pheno_phase_selection = ['germination-endoftillering', 'stemelongation-endofheading']
         elif scene_month in [5, 6, 7, 8]:
-            pheno_phase_selection = ['all_phases', 'stemelongation-endofheading', 'flowering-fruitdevelopment-plantdead']
+            pheno_phase_selection = ['stemelongation-endofheading', 'flowering-fruitdevelopment-plantdead']
         elif scene_month in [9]:
             # there should be no winter wheat growing in September
             continue
