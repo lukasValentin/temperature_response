@@ -257,7 +257,7 @@ def get_s2_spectra(
 if __name__ == '__main__':
 
     ### global setup
-    out_dir = Path('../S2_Traits')
+    out_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')
     out_dir.mkdir(exist_ok=True)
 
     # spectral response function of Sentinel-2 for resampling PROSAIL output
