@@ -1,5 +1,7 @@
 '''
-Trait extraction from Sentinel-2 imagery by radiative transfer model inversion
+Trait extraction from Sentinel-2 imagery by radiative transfer model inversion.
+
+@author: Lukas Valentin Graf
 '''
 
 import numpy as np
