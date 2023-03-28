@@ -139,7 +139,7 @@ def extract_s2_traits(
 if __name__ == '__main__':
 
     farms = ['Strickhof', 'Witzwil']
-    data_dir = Path('../S2_Traits')
+    data_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')
 
     cost_functions = {
         'all_phases': 'mae',
