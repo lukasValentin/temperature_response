@@ -1,7 +1,8 @@
 '''
-Created on Mar 21, 2023
+Combine model outputs to obtain congruent LAI time series per field parcel
+(at dates with cloud-free Sentinel-2 observations).
 
-@author: graflu
+@author: Lukas Valentin Graf
 '''
 
 import geopandas as gpd
@@ -19,7 +20,7 @@ plt.style.use('seaborn-dark')
 
 logger = get_settings().logger
 
-# make dateformats explicit to avoid formatting errors
+# make date formats explicit to avoid formatting errors
 date_formats_sites = {
     'Witzwil': '%Y-%m-%d %H:%M:%S',
     'Strickhof': '%d.%m.%Y %H:%M'
@@ -150,6 +151,7 @@ def combine_lai_model_results(
                     except TypeError:
                         logger.info(f'{site} {record["name"]}: {scene} does not overlap parcel')
                         continue
+
                     # plot as map
                     f = plot_observation(trait_ds=trait_ds)
                     f.suptitle(
@@ -167,7 +169,7 @@ def combine_lai_model_results(
                     # save pheno-phase
                     with open(parcel_out_dir.joinpath(f'parcel_{record["name"]}_phase_{phase}'), 'w+') as src:
                         src.write('')
-                    # extract statistics
+                    # extract statistics per field parcel and sensing date
                     stats = trait_ds.band_summaries(
                         method=['min', 'mean', 'median', 'max', 'percentile_10', 'percentile_90']
                     )
