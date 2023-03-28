@@ -115,6 +115,12 @@ def combine_lai_model_results(
                 harvest_date = pd.to_datetime(schedule.harvest_date)
                 # get meteo data between these two dates
                 meteo_parcel = meteo_site[sowing_date:harvest_date]
+                try:
+                    meteo_parcel.T_mean = meteo_parcel.T_mean.astype(float)
+                except ValueError:
+                    meteo_parcel.T_mean = meteo_parcel.T_mean.apply(
+                        lambda x, np=np: float(x) if x != '-' else np.nan
+                    )
 
                 # save meteorological data per parcel and season
                 outfile_meteo_site_parcel_season = outdir_meteo_site.joinpath(
@@ -207,6 +213,7 @@ def combine_lai_model_results(
                 fpath_parcel_season_stats = s2_trait_dir_site.joinpath(
                     f'{schedule["name"]}_{sowing_date.date()}-{harvest_date.date()}_lai.csv'
                 )
+                parcel_season_stats.dropna(inplace=True)
                 parcel_season_stats.to_csv(fpath_parcel_season_stats, index=False)
                 # plot time series
                 f, ax = plt.subplots(ncols=2, nrows=1, sharey=True, figsize=(20,10))
