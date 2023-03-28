@@ -90,6 +90,11 @@ def combine_lai_model_results(
         # open meteorological data
         meteo_site = pd.read_csv(meteo_dir.joinpath(f'{site}_Meteo_hourly.csv'))
         meteo_site.index = pd.to_datetime(meteo_site.time, format=date_formats_sites[site])
+
+        # store meteorological data per site, parcel and season
+        outdir_meteo_site = meteo_dir.joinpath(site)
+        outdir_meteo_site.mkdir(exist_ok=True)
+
         # loop over parcels
         for _, record in site_parcels.iterrows():
             parcel_geom = site_parcels[site_parcels.name == record['name']].copy()
@@ -110,6 +115,13 @@ def combine_lai_model_results(
                 harvest_date = pd.to_datetime(schedule.harvest_date)
                 # get meteo data between these two dates
                 meteo_parcel = meteo_site[sowing_date:harvest_date]
+
+                # save meteorological data per parcel and season
+                outfile_meteo_site_parcel_season = outdir_meteo_site.joinpath(
+                    f'{schedule["name"]}_{sowing_date.date()}-{harvest_date.date()}_meteo.csv'
+                )
+                meteo_parcel.to_csv(outfile_meteo_site_parcel_season, index=False)
+
                 # resample to daily values
                 t_mean_daily = meteo_parcel['T_mean'].astype(float).resample('24H').mean()
                 gdd = [x if x > 0 else 0 for x in t_mean_daily]
@@ -121,6 +133,7 @@ def combine_lai_model_results(
                 # loop over S2 traits and select those observations located
                 # between sowing and harvest date
                 s2_trait_dir_site = s2_trait_dir.joinpath(site)
+                parcel_season_stats_list = []
                 for scene in s2_trait_dir_site.glob('*.SAFE'):
                     sensing_date = pd.to_datetime(scene.name.split('_')[2][0:8], format='%Y%m%d')
                     if not sowing_date <= sensing_date <= harvest_date:
@@ -177,10 +190,50 @@ def combine_lai_model_results(
                     # (and not its bounding box)
                     stats.to_crs(crs=parcel_geom.crs, inplace=True)
                     stats.geometry = [parcel_geom.geometry.iloc[0] for x in range(stats.shape[0])]
+                    stats['sensing_date'] = sensing_date
+                    stats['agdd'] = scene_agdd
+                    stats['phase'] = phase
+                    parcel_season_stats_list.append(
+                        stats[[x for x in stats.columns if x != 'geometry']][stats.band_name == 'lai']
+                    )
                     # save as GeoPackage
                     fname_gpkg = parcel_out_dir.joinpath(f'{record["name"]}_lutinv_stats.gpkg')
                     stats.to_file(fname_gpkg)
                     logger.info(f'Successfully processed {site} {record["name"]} {scene}')
+
+                # save LAI statistics per parcel and season
+                parcel_season_stats = pd.concat(parcel_season_stats_list)
+                parcel_season_stats.sort_values(by='agdd', inplace=True)
+                fpath_parcel_season_stats = s2_trait_dir_site.joinpath(
+                    f'{schedule["name"]}_{sowing_date.date()}-{harvest_date.date()}_lai.csv'
+                )
+                parcel_season_stats.to_csv(fpath_parcel_season_stats, index=False)
+                # plot time series
+                f, ax = plt.subplots(ncols=2, nrows=1, sharey=True, figsize=(20,10))
+                time_types = ['sensing_date', 'agdd']
+                for idx, time_type in enumerate(time_types):
+                    ax[idx].plot(
+                        parcel_season_stats[time_type],
+                        parcel_season_stats['median'],
+                        marker='x',
+                        label='Median'
+                    )
+                    ax[idx].fill_between(
+                        parcel_season_stats[time_type],
+                        parcel_season_stats['percentile_10'],
+                        parcel_season_stats['percentile_90'],
+                        label='10-90% Quantile Spread',
+                        color='orange',
+                        alpha=.3
+                    )
+                    ax[idx].legend()
+                    ax[idx].set_ylabel(r'S2 Green Leaf Area Index [$m^2$ $m^{-2}$]')
+
+                fpath_parcel_season_stats_plot = s2_trait_dir_site.joinpath(
+                    f'{schedule["name"]}_{sowing_date.date()}-{harvest_date.date()}_lai.png'
+                )
+                f.savefig(fpath_parcel_season_stats_plot, bbox_inches='tight')
+                plt.close(f)
 
 if __name__ == '__main__':
     
