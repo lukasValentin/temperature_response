@@ -16,7 +16,7 @@ from eodal.core.raster import RasterCollection
 from pathlib import Path
 
 mpl.rc('font', size=16)
-plt.style.use('seaborn-dark')
+plt.style.use('bmh')
 
 logger = get_settings().logger
 
@@ -146,6 +146,8 @@ def combine_lai_model_results(
                         continue
                     # lookup the AGDD of the current S2 scene
                     scene_agdd = agdd[sensing_date.date()]
+                    # convert calendar date to days after sowing (das)
+                    das = int((sensing_date - sowing_date) / np.timedelta64(1, 'D'))
                     # use AGDD threshold to determine the phenological macro-stage the parcel is in
                     if scene_agdd < GDD_CRITICAL['SE']:
                         phase = 'germination-endoftillering'
@@ -196,9 +198,12 @@ def combine_lai_model_results(
                     # (and not its bounding box)
                     stats.to_crs(crs=parcel_geom.crs, inplace=True)
                     stats.geometry = [parcel_geom.geometry.iloc[0] for x in range(stats.shape[0])]
-                    stats['sensing_date'] = sensing_date
-                    stats['agdd'] = scene_agdd
-                    stats['phase'] = phase
+                    stats.update({
+                        'sensing_date': sensing_date,
+                        'agdd': agdd,
+                        'phase': phase,
+                        'das': das
+                    })
                     parcel_season_stats_list.append(
                         stats[[x for x in stats.columns if x != 'geometry']][stats.band_name == 'lai']
                     )
@@ -217,7 +222,8 @@ def combine_lai_model_results(
                 parcel_season_stats.to_csv(fpath_parcel_season_stats, index=False)
                 # plot time series
                 f, ax = plt.subplots(ncols=2, nrows=1, sharey=True, figsize=(20,10))
-                time_types = ['sensing_date', 'agdd']
+                time_types = ['das', 'agdd']
+                time_labels = ['Days after Sowing [d]', 'Accumulated Growing Degree Days [deg C d]']
                 for idx, time_type in enumerate(time_types):
                     ax[idx].plot(
                         parcel_season_stats[time_type],
@@ -235,6 +241,7 @@ def combine_lai_model_results(
                     )
                     ax[idx].legend()
                     ax[idx].set_ylabel(r'S2 Green Leaf Area Index [$m^2$ $m^{-2}$]')
+                    ax[idx].set_xlabel(time_labels[idx])
 
                 fpath_parcel_season_stats_plot = s2_trait_dir_site.joinpath(
                     f'{schedule["name"]}_{sowing_date.date()}-{harvest_date.date()}_lai.png'
