@@ -11,10 +11,13 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import warnings
 
 from eodal.config import get_settings
 from eodal.core.raster import RasterCollection
 from pathlib import Path
+
+warnings.filterwarnings('ignore')
 
 mpl.rc('font', size=16)
 plt.style.use('bmh')
@@ -200,12 +203,13 @@ def combine_lai_model_results(
                     stats.to_crs(crs=parcel_geom.crs, inplace=True)
                     stats.geometry = [parcel_geom.geometry.iloc[0] for x in range(stats.shape[0])]
                     stats = stats[[x for x in stats.columns if x != 'geometry']][stats.band_name == 'lai']
-                    stats = stats.to_dict()
+                    stats = stats.iloc[0].to_dict()
                     stats.update({
                         'sensing_date': str(sensing_date.date()),
                         'agdd': scene_agdd,
                         'phase': phase,
-                        'das': das
+                        'das': das,
+                        's2_scene': scene.name
                     })
                     parcel_season_stats_list.append(stats)
                     # save as json
@@ -215,34 +219,43 @@ def combine_lai_model_results(
                     logger.info(f'Successfully processed {site} {record["name"]} {scene}')
 
                 # save LAI statistics per parcel and season
-                parcel_season_stats = pd.concat(parcel_season_stats_list)
+                parcel_season_stats = pd.DataFrame(parcel_season_stats_list)
                 parcel_season_stats.sort_values(by='agdd', inplace=True)
+                parcel_season_stats.dropna(inplace=True)
+                # in case of overlapping S2 tiles there might be more than one value per
+                # sensing date. Since the atmospheric correction works per S2 tile there
+                # might be differences in the spectral and radiometric data and hence LAI
+                # values that one obtains for the same location and day from different S2 tiles.
+                # here, we use the average of these two values to get a single value per
+                # location and day
+                stats_agg = parcel_season_stats.groupby(by=['agdd', 'das', 'sensing_date']).mean()
+                stats_agg = stats_agg.reset_index()
                 fpath_parcel_season_stats = s2_trait_dir_site.joinpath(
                     f'{schedule["name"]}_{sowing_date.date()}-{harvest_date.date()}_lai.csv'
                 )
-                parcel_season_stats.dropna(inplace=True)
-                parcel_season_stats.to_csv(fpath_parcel_season_stats, index=False)
+                stats_agg.to_csv(fpath_parcel_season_stats, index=False)
                 # plot time series
                 f, ax = plt.subplots(ncols=2, nrows=1, sharey=True, figsize=(20,10))
                 time_types = ['das', 'agdd']
-                time_labels = ['Days after Sowing [d]', 'Accumulated Growing Degree Days [deg C d]']
+                time_labels = ['Days After Sowing [d]', 'Accumulated Growing Degree Days [deg C d]']
                 for idx, time_type in enumerate(time_types):
                     ax[idx].plot(
-                        parcel_season_stats[time_type],
-                        parcel_season_stats['median'],
+                        stats_agg[time_type],
+                        stats_agg['median'],
                         marker='x',
                         label='Median'
                     )
                     ax[idx].fill_between(
-                        parcel_season_stats[time_type],
-                        parcel_season_stats['percentile_10'],
-                        parcel_season_stats['percentile_90'],
+                        stats_agg[time_type],
+                        stats_agg['percentile_10'],
+                        stats_agg['percentile_90'],
                         label='10-90% Quantile Spread',
                         color='orange',
                         alpha=.3
                     )
                     ax[idx].legend()
-                    ax[idx].set_ylabel(r'S2 Green Leaf Area Index [$m^2$ $m^{-2}$]')
+                    if idx == 0:
+                        ax[idx].set_ylabel(r'S2 Green Leaf Area Index [$m^2$ $m^{-2}$]')
                     ax[idx].set_xlabel(time_labels[idx])
 
                 fpath_parcel_season_stats_plot = s2_trait_dir_site.joinpath(
