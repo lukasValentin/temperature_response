@@ -6,6 +6,7 @@ Combine model outputs to obtain congruent LAI time series per field parcel
 '''
 
 import geopandas as gpd
+import json
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -114,7 +115,7 @@ def combine_lai_model_results(
                 sowing_date = pd.to_datetime(schedule.sowing_date)
                 harvest_date = pd.to_datetime(schedule.harvest_date)
                 # get meteo data between these two dates
-                meteo_parcel = meteo_site[sowing_date:harvest_date]
+                meteo_parcel = meteo_site[sowing_date:harvest_date].copy()
                 try:
                     meteo_parcel.T_mean = meteo_parcel.T_mean.astype(float)
                 except ValueError:
@@ -198,18 +199,19 @@ def combine_lai_model_results(
                     # (and not its bounding box)
                     stats.to_crs(crs=parcel_geom.crs, inplace=True)
                     stats.geometry = [parcel_geom.geometry.iloc[0] for x in range(stats.shape[0])]
+                    stats = stats[[x for x in stats.columns if x != 'geometry']][stats.band_name == 'lai']
+                    stats = stats.to_dict()
                     stats.update({
-                        'sensing_date': sensing_date,
-                        'agdd': agdd,
+                        'sensing_date': str(sensing_date.date()),
+                        'agdd': scene_agdd,
                         'phase': phase,
                         'das': das
                     })
-                    parcel_season_stats_list.append(
-                        stats[[x for x in stats.columns if x != 'geometry']][stats.band_name == 'lai']
-                    )
-                    # save as GeoPackage
-                    fname_gpkg = parcel_out_dir.joinpath(f'{record["name"]}_lutinv_stats.gpkg')
-                    stats.to_file(fname_gpkg)
+                    parcel_season_stats_list.append(stats)
+                    # save as json
+                    fname_json = parcel_out_dir.joinpath(f'{record["name"]}_lutinv_stats.json')
+                    with open(fname_json, 'w+') as dst:
+                        json.dump(stats, dst) 
                     logger.info(f'Successfully processed {site} {record["name"]} {scene}')
 
                 # save LAI statistics per parcel and season
