@@ -56,6 +56,10 @@ def extract_s2_traits(
                 pheno_phase = fpath_lut.name.split('_')[0]
                 if pheno_phase == 'all': pheno_phase = 'all_phases'
 
+                # check if inversion results exists already
+                fname = scene_dir.joinpath(f'{pheno_phase}_lutinv_traits.tiff')
+                if fname.exists(): continue
+
                 # draw sub-sample from LUT if required
                 if lut_sizes[pheno_phase] < lut.shape[0]:
                     lut = lut.sample(lut_sizes[pheno_phase])
@@ -133,7 +137,6 @@ def extract_s2_traits(
                     values=median_cost_function_vals
                 )
                 # save to GeoTiff
-                fname = scene_dir.joinpath(f'{pheno_phase}_lutinv_traits.tiff')
                 trait_collection.to_rasterio(fpath_raster=fname)
 
             logger.info(f'{farm}: Finished inversion of {scene_dir.name}')
