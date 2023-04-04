@@ -22,6 +22,10 @@ def prepare_blw_polygons(
     """
     Prepare winter wheat polygon data for trait retrieval.
 
+    This includes:
+    * clipping the data to S2 tile boundaries
+    * discarding parcels smaller than the minimum parcel size (in ha)
+
     :param fpath_s2_tiles:
         path to directory with selected Sentinel-2 tiles
     :param fpath_ww_polys:
@@ -49,6 +53,9 @@ def prepare_blw_polygons(
             polys_clipped['area_ha'] = polys_clipped.area
             polys_clipped.area_ha = polys_clipped.area_ha * (1/100**2)
             polys_clipped_eq = polys_clipped[polys_clipped.area_ha >= min_parcel_size].copy()
+            # in some cases there might be no-data
+            if polys_clipped_eq.empty():
+                continue
             stats_tiles_parcel = {
                 'total': polys_clipped.shape[0],
                 'total_mean_area_ha': polys_clipped.area_ha.mean(),
