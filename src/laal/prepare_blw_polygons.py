@@ -40,7 +40,7 @@ def prepare_blw_polygons(
     # one tile. We'll solve this when we have the final LAI TS
     for ww_polys in fpath_ww_polys.glob('*.gpkg'):
         polys = gpd.read_file(ww_polys)
-        # unfortunately, there is no real unique ID in the data
+        # let's use a more handy ID than the original one
         polys['eodal_id'] = [x for x in range(polys.shape[0])]
         year = ww_polys.name.split('_')[1].split('.')[0]
         out_dir_year = fpath_ww_polys.joinpath(year)
