@@ -79,10 +79,24 @@ def extract_raw_lai_timeseries(
                 lambda x, relevant_phase=relevant_phase, parcel_name=parcel_name:
                     x.joinpath(str(parcel_name)).joinpath(f'parcel_{parcel_name}_phase_{relevant_phase}')
             )
-            # check if result exists
+
+            # check if result exists -> this actually identifies the timing of the phases
             s2_obs_parcel['result_exists'] = s2_obs_parcel['pheno_phase'].apply(
                 lambda x: x.exists()
             )
+
+            # also include the scene before and after the identified period
+            # to account for the uncertainty in the identification of the period
+            s2_obs_parcel['number'] = [x for x in range(s2_obs_parcel.shape[0])]
+            scene_before = s2_obs_parcel[s2_obs_parcel.result_exists]['number'][0] - 1
+            if scene_before >= 0:
+                scene_before_idx = s2_obs_parcel[s2_obs_parcel.number == scene_before].index[0]
+                s2_obs_parcel.loc[scene_before_idx, 'result_exists'] = True
+            scene_after = s2_obs_parcel[s2_obs_parcel.result_exists]['number'][-1] + 1
+            if scene_after < s2_obs_parcel.shape[0]:
+                scene_after_idx = s2_obs_parcel[s2_obs_parcel.number == scene_after].index[0]
+                s2_obs_parcel.loc[scene_after_idx, 'result_exists'] = True
+
             s2_obs_parcel = s2_obs_parcel[s2_obs_parcel.result_exists].copy()
             # loop over remaining sensing dates and read data
             scoll = SceneCollection()
