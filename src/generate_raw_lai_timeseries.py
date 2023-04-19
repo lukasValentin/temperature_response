@@ -101,7 +101,7 @@ def extract_raw_lai_timeseries(
             # loop over remaining sensing dates and read data
             scoll = SceneCollection()
             for _, s2_obs_date in s2_obs_parcel.iterrows():
-                fpath_s2_traits = s2_obs_date.pheno_phase.parent.joinpath(
+                fpath_s2_traits = s2_obs_date.fpath.joinpath(
                     f'parcel_{parcel_name}_lai-ccc_data.tiff'
                 )
                 # read parcel results
