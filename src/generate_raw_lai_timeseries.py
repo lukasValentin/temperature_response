@@ -196,8 +196,8 @@ def extract_raw_lai_timeseries(
 if __name__ == '__main__':
 
     test_sites_dir = Path('../data/Test_Sites')
-    # s2_trait_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')
-    s2_trait_dir = Path('/mnt/ides/Lukas/04_Work/S2_Traits')
+    s2_trait_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')
+    # s2_trait_dir = Path('/mnt/ides/Lukas/04_Work/S2_Traits')
     relevant_phase = 'stemelongation-endofheading'
     meteo_dir = Path('../data/Meteo')
     out_dir = Path('../results/test_sites_pixel_ts')
