@@ -102,7 +102,7 @@ def extract_raw_lai_timeseries(
             scoll = SceneCollection()
             for _, s2_obs_date in s2_obs_parcel.iterrows():
                 fpath_s2_traits = s2_obs_date.fpath.joinpath(
-                    str(parcel)
+                    str(parcel_name)
                 ).joinpath(
                     f'parcel_{parcel_name}_lai-ccc_data.tiff'
                 )
