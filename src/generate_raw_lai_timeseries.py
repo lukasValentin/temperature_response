@@ -157,10 +157,25 @@ def extract_raw_lai_timeseries(
             out_dir_parcel = out_dir.joinpath(f'parcel_{parcel_name}_{min_time.date()}-{max_time.date()}')
             out_dir_parcel.mkdir(exist_ok=True)
 
-            # save "raw" LAI values
+            # save "raw" LAI values as pickle
             fname_raw_lai = out_dir_parcel.joinpath('raw_lai_values.pkl')
             with open(fname_raw_lai, 'wb+') as dst:
                 dst.write(scoll.to_pickle())
+
+            # save "raw" LAI values as table using all pixels in the parcels
+            # so that it is easier to work with the data
+            # we use xarray as an intermediate to convert it to a pandas DataFrame
+            xarr = scoll.to_xarray()
+            df = xarr.to_dataframe(name='lai').reset_index()
+            # drop nan's (these are the pixels outside the parcel)
+            df.dropna(inplace=True)
+            # drop the band name column since it is redundant
+            df.drop('band', axis=1, inplace=True)
+            # save the DataFrame as CSV file
+            fname_csv = out_dir_parcel.joinpath('raw_lai_values.csv')
+            df.to_csv(fname_csv, index=False)
+
+            # plot data LAI as a map
             f = scoll.plot(
                 band_selection='lai',
                 figsize=(5*len(scoll),5),
@@ -168,6 +183,7 @@ def extract_raw_lai_timeseries(
             )
             f.savefig(out_dir_parcel.joinpath('raw_lai_values.png'))
             plt.close(f)
+
             # save hourly meteo data
             meteo_site_parcel.to_csv(out_dir_parcel.joinpath('hourly_mean_temperature.csv'), index=False)
             f, ax = plt.subplots(figsize=(8,5))
@@ -180,7 +196,8 @@ def extract_raw_lai_timeseries(
 if __name__ == '__main__':
 
     test_sites_dir = Path('../data/Test_Sites')
-    s2_trait_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')
+    # s2_trait_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')
+    s2_trait_dir = Path('/mnt/ides/Lukas/04_Work/S2_Traits')
     relevant_phase = 'stemelongation-endofheading'
     meteo_dir = Path('../data/Meteo')
     out_dir = Path('../results/test_sites_pixel_ts')
