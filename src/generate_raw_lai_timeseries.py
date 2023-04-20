@@ -85,9 +85,10 @@ def extract_raw_lai_timeseries(
                 lambda x: x.exists()
             )
 
-            # also include the scene before and after the identified period
+            # also include the two scenes before and after the identified period
             # to account for the uncertainty in the identification of the period
             s2_obs_parcel['number'] = [x for x in range(s2_obs_parcel.shape[0])]
+            
             scene_before = s2_obs_parcel[s2_obs_parcel.result_exists]['number'][0] - 1
             if scene_before >= 0:
                 scene_before_idx = s2_obs_parcel[s2_obs_parcel.number == scene_before].index[0]
@@ -106,6 +107,9 @@ def extract_raw_lai_timeseries(
                 ).joinpath(
                     f'parcel_{parcel_name}_lai-ccc_data.tiff'
                 )
+                # in case the parcel result could not be generated, continue
+                if not fpath_s2_traits.exists():
+                    continue
                 # read parcel results
                 s2_traits = RasterCollection.from_multi_band_raster(
                     fpath_raster=fpath_s2_traits,
