@@ -299,8 +299,8 @@ if __name__ == '__main__':
         df = pd.read_csv(site_dir.joinpath(f'{site}.csv'))
         df.sowing_date = pd.to_datetime(df.sowing_date)
         df.harvest_date = pd.to_datetime(df.harvest_date)
-        time_start = df.sowing_date.min().date()
-        time_end = df.harvest_date.max().date()
+        time_start = df.sowing_date.min()
+        time_end = df.harvest_date.max()
 
         # setup S2 Mapper
         s2_mapper_config = MapperConfigs(
