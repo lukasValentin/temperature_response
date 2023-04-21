@@ -151,6 +151,7 @@ def get_s2_mapper(
         dst.write(mapper.data.to_pickle())
 
     # TODO: extract the angular information
+    metadata['sensor_zenith_angle'] = metadata
 
     # save the mapper metadata as GeoPackage
     mapper.metadata.sensing_date = mapper.metadata.sensing_date.astype(str)
