@@ -7,8 +7,13 @@ Module to extract Sentinel-2 imagery for the test sites
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pandas as pd
+import planetary_computer
 import pickle
+import tempfile
+import urllib
+import uuid
 
 from datetime import datetime
 from eodal.config import get_settings
@@ -24,11 +29,34 @@ from shapely.geometry import box
 from typing import Any, Dict, List
 
 settings = get_settings()
-settings.USE_STAC = False
+settings.USE_STAC = True
 logger = settings.logger
 
 # Sentinel-2 bands to extract and use for PROSAIL runs
 band_selection = ['B02','B03','B04','B05','B06','B07','B8A','B11','B12']
+
+def angles_from_mspc(url: str) -> Dict[str, float]:
+    """
+    Extract viewing and illumination angles from MS Planetary Computer
+    metadata XML (this is a work-around until STAC provides the angles
+    directly)
+
+    :param url:
+        URL to the metadata XML file
+    :returns:
+        extracted angles as dictionary
+    """
+    response = urllib.request.urlopen(planetary_computer.sign_url(url)).read()
+    temp_file = os.path.join(tempfile.gettempdir(),f'{uuid.uuid4()}.xml')
+    with open(temp_file, 'wb') as dst:
+        dst.write(response)
+
+    from eodal.metadata.sentinel2.parsing import parse_MTD_TL
+    metadata = parse_MTD_TL(in_file=temp_file)
+    # get sensor zenith and azimuth angle
+    sensor_angles = ['SENSOR_ZENITH_ANGLE', 'SENSOR_AZIMUTH_ANGLE']
+    sensor_angle_dict = {k:v for k,v in metadata.items() if k in sensor_angles}
+    return sensor_angle_dict
 
 def preprocess_sentinel2_scenes(
         ds: Sentinel2,
@@ -121,6 +149,9 @@ def get_s2_mapper(
     # save the mapper data as pickled object so it can be loaded again
     with open(fpath_mapper, 'wb+') as dst:
         dst.write(mapper.data.to_pickle())
+
+    # TODO: extract the angular information
+
     # save the mapper metadata as GeoPackage
     mapper.metadata.sensing_date = mapper.metadata.sensing_date.astype(str)
     if 'real_path' in mapper.metadata.columns:

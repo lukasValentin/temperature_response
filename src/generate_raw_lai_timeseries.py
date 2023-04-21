@@ -5,6 +5,7 @@ for each pixel.
 @author: Lukas Valentin Graf
 '''
 
+from eodal.config import get_settings
 from eodal.core.band import Band
 from eodal.core.operators import Operator
 from eodal.core.raster import RasterCollection, SceneProperties
@@ -19,6 +20,8 @@ formats = {
     'Witzwil': '%Y-%m-%d %H:%M:%S',
     'Strickhof': '%d.%m.%Y %H:%M'
 }
+
+logger = get_settings().logger
 
 def extract_raw_lai_timeseries(
     test_sites_dir: Path,
@@ -74,6 +77,20 @@ def extract_raw_lai_timeseries(
             harvest_date = pd.to_datetime(parcel.harvest_date).tz_localize('Europe/Zurich')
             s2_obs_parcel = s2_obs[sowing_date:harvest_date].copy()
             parcel_name = parcel['name']
+            # check which scenes have a <parcel_name> sub-folder. Due to no-data it might
+            # happen that some scenes did not cover the parcel. In this case, we do not consider
+            # these scenes any further
+            s2_obs_parcel['has_parcel_subfolder'] = s2_obs_parcel['fpath'].apply(
+                lambda x, parcel_name=parcel_name:
+                    x.joinpath(str(parcel_name)).exists()
+            )
+            s2_obs_parcel = s2_obs_parcel[s2_obs_parcel.has_parcel_subfolder].copy()
+            if s2_obs_parcel.empty:
+                logger.warn(f'No data found for parcel {parcel_name} at {site_name}')
+
+            # drop duplicates based on the acquisition time. These might stem from different tiles
+            s2_obs_parcel.drop_duplicates(subset=['sensing_time'], keep='first', inplace=True)
+
             # loop over observations and check for the selected phenological phase
             s2_obs_parcel['pheno_phase'] = s2_obs_parcel['fpath'].apply(
                 lambda x, relevant_phase=relevant_phase, parcel_name=parcel_name:
@@ -88,8 +105,12 @@ def extract_raw_lai_timeseries(
             # also include the two scenes before and after the identified period
             # to account for the uncertainty in the identification of the period
             s2_obs_parcel['number'] = [x for x in range(s2_obs_parcel.shape[0])]
-            
-            scene_before = s2_obs_parcel[s2_obs_parcel.result_exists]['number'][0] - 1
+
+            # TODO: This clause can be removed once the issue with the 2023 data is solved
+            try:
+                scene_before = s2_obs_parcel[s2_obs_parcel.result_exists]['number'][0] - 1
+            except Exception as e:
+                continue
             if scene_before >= 0:
                 scene_before_idx = s2_obs_parcel[s2_obs_parcel.number == scene_before].index[0]
                 s2_obs_parcel.loc[scene_before_idx, 'result_exists'] = True
@@ -160,6 +181,7 @@ def extract_raw_lai_timeseries(
             scoll.sort('asc')
             # continue if no scenes were found
             if scoll.empty:
+                logger.warn(f'No scenes found for parcel {parcel_name} at {site_name}')
                 continue
 
             # extract the meteorological data (hourly)
@@ -213,14 +235,16 @@ def extract_raw_lai_timeseries(
             f.savefig(out_dir_parcel.joinpath('hourly_mean_temperature.png'), bbox_inches='tight')
             plt.close(f)
 
+            logger.info(f'Prepared LAI data for parcel {parcel_name} at {site_name}')
+
 if __name__ == '__main__':
 
-    test_sites_dir = Path('../data/Test_Sites')
+    test_sites_dir = Path('./data/Test_Sites')
     s2_trait_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')
     # s2_trait_dir = Path('/mnt/ides/Lukas/04_Work/S2_Traits')
     relevant_phase = 'stemelongation-endofheading'
-    meteo_dir = Path('../data/Meteo')
-    out_dir = Path('../results/test_sites_pixel_ts')
+    meteo_dir = Path('./data/Meteo')
+    out_dir = Path('./results/test_sites_pixel_ts')
     out_dir.mkdir(exist_ok=True)
 
     extract_raw_lai_timeseries(
