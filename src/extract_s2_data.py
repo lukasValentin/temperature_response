@@ -7,13 +7,8 @@ Module to extract Sentinel-2 imagery for the test sites
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 import pandas as pd
-import planetary_computer
 import pickle
-import tempfile
-import urllib
-import uuid
 
 from datetime import datetime
 from eodal.config import get_settings
@@ -34,29 +29,6 @@ logger = settings.logger
 
 # Sentinel-2 bands to extract and use for PROSAIL runs
 band_selection = ['B02','B03','B04','B05','B06','B07','B8A','B11','B12']
-
-def angles_from_mspc(url: str) -> Dict[str, float]:
-    """
-    Extract viewing and illumination angles from MS Planetary Computer
-    metadata XML (this is a work-around until STAC provides the angles
-    directly)
-
-    :param url:
-        URL to the metadata XML file
-    :returns:
-        extracted angles as dictionary
-    """
-    response = urllib.request.urlopen(planetary_computer.sign_url(url)).read()
-    temp_file = os.path.join(tempfile.gettempdir(),f'{uuid.uuid4()}.xml')
-    with open(temp_file, 'wb') as dst:
-        dst.write(response)
-
-    from eodal.metadata.sentinel2.parsing import parse_MTD_TL
-    metadata = parse_MTD_TL(in_file=temp_file)
-    # get sensor zenith and azimuth angle
-    sensor_angles = ['SENSOR_ZENITH_ANGLE', 'SENSOR_AZIMUTH_ANGLE']
-    sensor_angle_dict = {k:v for k,v in metadata.items() if k in sensor_angles}
-    return sensor_angle_dict
 
 def preprocess_sentinel2_scenes(
         ds: Sentinel2,
@@ -106,12 +78,12 @@ def get_s2_mapper(
     # a new mapper instance
     fpath_metadata = output_dir.joinpath('eodal_mapper_metadata.gpkg')
     fpath_mapper = output_dir.joinpath('eodal_mapper_scenes.pkl')
-    if fpath_mapper.exists() and fpath_metadata.exists():
-        metadata = gpd.read_file(fpath_metadata)
-        scenes = SceneCollection.from_pickle(stream=fpath_mapper)
-        mapper.data = scenes
-        mapper.metadata = metadata
-        return mapper
+    # if fpath_mapper.exists() and fpath_metadata.exists():
+    #     metadata = gpd.read_file(fpath_metadata)
+    #     scenes = SceneCollection.from_pickle(stream=fpath_mapper)
+    #     mapper.data = scenes
+    #     mapper.metadata = metadata
+    #     return mapper
 
     # otherwise, it's necessary to query the data again
     # query metadata records
@@ -149,9 +121,6 @@ def get_s2_mapper(
     # save the mapper data as pickled object so it can be loaded again
     with open(fpath_mapper, 'wb+') as dst:
         dst.write(mapper.data.to_pickle())
-
-    # TODO: extract the angular information
-    metadata['sensor_zenith_angle'] = metadata
 
     # save the mapper metadata as GeoPackage
     mapper.metadata.sensing_date = mapper.metadata.sensing_date.astype(str)
@@ -310,7 +279,7 @@ if __name__ == '__main__':
 
     # metadata filters for retrieving S2 scenes
     metadata_filters = [
-        Filter('cloudy_pixel_percentage','<', 50),
+        Filter('cloudy_pixel_percentage','<', 80),
         Filter('processing_level', '==', 'Level-2A')
     ]
 
@@ -330,8 +299,8 @@ if __name__ == '__main__':
         df = pd.read_csv(site_dir.joinpath(f'{site}.csv'))
         df.sowing_date = pd.to_datetime(df.sowing_date)
         df.harvest_date = pd.to_datetime(df.harvest_date)
-        time_start = df.sowing_date.min()
-        time_end = df.harvest_date.max()
+        time_start = df.sowing_date.min().date()
+        time_end = df.harvest_date.max().date()
 
         # setup S2 Mapper
         s2_mapper_config = MapperConfigs(

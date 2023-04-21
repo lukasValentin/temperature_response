@@ -7,12 +7,12 @@ angles and store results in a GeoPackage (i.e., SQL database).
 
 import geopandas as gpd
 import numpy as np
-import os
+# import os
 import pandas as pd
-import planetary_computer
-import tempfile
-import urllib.request
-import uuid
+# import planetary_computer
+# import tempfile
+# import urllib.request
+# import uuid
 
 from datetime import datetime
 from eodal.config import get_settings
@@ -24,10 +24,11 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 Settings = get_settings()
-Settings.USE_STAC = True
+Settings.USE_STAC = False
+logger = Settings.logger
 
 months_of_interest: List[int] = [3] # [3,4,5,6]
-cloudy_pixel_percentage: int = 50 # percent
+cloudy_pixel_percentage: int = 70 # percent
 parcel_cloudy_pixel_percentage: int = 20 # percent
 snow_ice_percentage = 0 # percent
 processing_level: str = 'Level-2A'
@@ -36,28 +37,28 @@ collection: str = 'sentinel2-msi'
 # Sentinel-2 bands to extract and use for PROSAIL runs
 band_selection: List[str] = ['B02','B03','B04','B05','B06','B07','B8A','B11','B12']
 
-def angles_from_mspc(url: str) -> Dict[str, float]:
-    """
-    Extract viewing and illumination angles from MS Planetary Computer
-    metadata XML (this is a work-around until STAC provides the angles
-    directly)
+# def angles_from_mspc(url: str) -> Dict[str, float]:
+#     """
+#     Extract viewing and illumination angles from MS Planetary Computer
+#     metadata XML (this is a work-around until STAC provides the angles
+#     directly)
 
-    :param url:
-        URL to the metadata XML file
-    :returns:
-        extracted angles as dictionary
-    """
-    response = urllib.request.urlopen(planetary_computer.sign_url(url)).read()
-    temp_file = os.path.join(tempfile.gettempdir(),f'{uuid.uuid4()}.xml')
-    with open(temp_file, 'wb') as dst:
-        dst.write(response)
+#     :param url:
+#         URL to the metadata XML file
+#     :returns:
+#         extracted angles as dictionary
+#     """
+#     response = urllib.request.urlopen(planetary_computer.sign_url(url)).read()
+#     temp_file = os.path.join(tempfile.gettempdir(),f'{uuid.uuid4()}.xml')
+#     with open(temp_file, 'wb') as dst:
+#         dst.write(response)
 
-    from eodal.metadata.sentinel2.parsing import parse_MTD_TL
-    metadata = parse_MTD_TL(in_file=temp_file)
-    # get sensor zenith and azimuth angle
-    sensor_angles = ['SENSOR_ZENITH_ANGLE', 'SENSOR_AZIMUTH_ANGLE']
-    sensor_angle_dict = {k:v for k,v in metadata.items() if k in sensor_angles}
-    return sensor_angle_dict
+#     from eodal.metadata.sentinel2.parsing import parse_MTD_TL
+#     metadata = parse_MTD_TL(in_file=temp_file)
+#     # get sensor zenith and azimuth angle
+#     sensor_angles = ['SENSOR_ZENITH_ANGLE', 'SENSOR_AZIMUTH_ANGLE']
+#     sensor_angle_dict = {k:v for k,v in metadata.items() if k in sensor_angles}
+#     return sensor_angle_dict
 
 def preprocess_sentinel2_scenes(
     ds: Sentinel2,
@@ -170,6 +171,12 @@ def extract_s2_spectra(
                 mapper.metadata.tile_id == s2_tile
             ].copy()
 
+            # if no scenes were found continue
+            if mapper.metadata.empty:
+                logger.warn(
+                    f'No scenes found for {s2_tile} between {time_start} and {time_end}'
+                )
+
             # load scenes
             mapper.load_scenes(scene_kwargs)
             # calculate zonal statistics of the SCL layer. If more than XX% of
@@ -218,19 +225,16 @@ def extract_s2_spectra(
             )
             gdf.drop(columns=['geometry_wkt'], inplace=True)
 
-            # get scene viewing  and illumination angles from metadata xml
-            for _, metadata_item in mapper.metadata.iterrows():
-                url = metadata_item.assets['granule-metadata']['href']
-                angle_dict = angles_from_mspc(url=url)
-                # TODO: join the angles and the extracted spectra
-            
-
 if __name__ == '__main__':
 
+    # base directory
+    base_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn')
+
     # directory with parcel geometries by year and S2 tile
-    ww_polys_dir = Path('/mnt/ides/Lukas/00_GIS_Basedata/WW_CH')
+    ww_polys_dir = base_dir.joinpath('00_GIS_Basedata/Crop_Maps/WW_CH')
 
     # directory where to save results by year and S2 tile
-    out_dir = Path('/mnt/ides/Lukas/04_Work/LaaL')
+    out_dir = base_dir.joinpath('04_LaaL').joinpath('CH')
+    out_dir.mkdir(exist_ok=True)
 
     extract_s2_spectra(ww_polys_dir, out_dir)

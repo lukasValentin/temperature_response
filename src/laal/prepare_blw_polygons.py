@@ -48,6 +48,7 @@ def prepare_blw_polygons(
         # loop over S2 tiles
         stats_tile_list = []
         for _, s2_tile_geom in s2_tiles.iterrows():
+            
             s2_tile = s2_tile_geom['Name']
 
             # clip to tile
@@ -95,8 +96,8 @@ def prepare_blw_polygons(
 
 if __name__ == '__main__':
 
-    gis_dir = Path('/mnt/ides/Lukas/00_GIS_Basedata')
+    gis_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/00_GIS_Basedata/Crop_Maps/WW_CH/')
     fpath_s2_tiles = gis_dir.joinpath('S2_CH')
-    fpath_ww_polys = gis_dir.joinpath('WW_CH')
+    fpath_ww_polys = gis_dir
 
     prepare_blw_polygons(fpath_s2_tiles, fpath_ww_polys)
