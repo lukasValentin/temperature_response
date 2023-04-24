@@ -244,9 +244,8 @@ def get_s2_spectra(
             'viewing_azimuth_angle': metadata['sensor_azimuth_angle'].iloc[0]
         }
         # get platform
-        platform = get_S2_platform_from_safe(
-            dot_safe_name=metadata['product_uri'].iloc[0]
-        )
+        platform = metadata['product_uri'].iloc[0].split('_')[0]
+
         # map to full platform name
         full_names = {'S2A': 'Sentinel2A', 'S2B': 'Sentinel2B'}
         platform = full_names[platform]
@@ -254,6 +253,8 @@ def get_s2_spectra(
 
         # save spectra and PROSAIL simulations in a sub-directory for each scene
         res_dir_scene = output_dir.joinpath(metadata['product_uri'].iloc[0])
+        if not str(res_dir_scene).endswith('.SAFE'):
+            res_dir_scene = Path(str(res_dir_scene) + '.SAFE')
         res_dir_scene.mkdir(exist_ok=True)
 
         # save S2 spectra to disk for analysis
@@ -332,6 +333,8 @@ if __name__ == '__main__':
 
     import sys
     sites = sys.argv[1:]
+    # sites = ['SwissFutureFarm']
+    # site_dir = Path('./data/Test_Sites')
     site_dir = Path('../data/Test_Sites')
 
     for site in sites:
