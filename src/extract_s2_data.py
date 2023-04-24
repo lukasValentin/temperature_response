@@ -106,12 +106,12 @@ def get_s2_mapper(
     # a new mapper instance
     fpath_metadata = output_dir.joinpath('eodal_mapper_metadata.gpkg')
     fpath_mapper = output_dir.joinpath('eodal_mapper_scenes.pkl')
-    # if fpath_mapper.exists() and fpath_metadata.exists():
-    #     metadata = gpd.read_file(fpath_metadata)
-    #     scenes = SceneCollection.from_pickle(stream=fpath_mapper)
-    #     mapper.data = scenes
-    #     mapper.metadata = metadata
-    #     return mapper
+    if fpath_mapper.exists() and fpath_metadata.exists():
+        metadata = gpd.read_file(fpath_metadata)
+        scenes = SceneCollection.from_pickle(stream=fpath_mapper)
+        mapper.data = scenes
+        mapper.metadata = metadata
+        return mapper
 
     # otherwise, it's necessary to query the data again
     # query metadata records
@@ -332,8 +332,7 @@ if __name__ == '__main__':
 
     import sys
     sites = sys.argv[1:]
-    sites = ['Witzwil']
-    site_dir = Path('./data/Test_Sites')
+    site_dir = Path('../data/Test_Sites')
 
     for site in sites:
         # read geometries
