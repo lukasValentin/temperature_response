@@ -7,8 +7,13 @@ Module to extract Sentinel-2 imagery for the test sites
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import pandas as pd
+import planetary_computer
 import pickle
+import tempfile
+import urllib
+import uuid
 
 from datetime import datetime
 from eodal.config import get_settings
@@ -17,6 +22,7 @@ from eodal.core.sensors.sentinel2 import Sentinel2
 from eodal.mapper.feature import Feature
 from eodal.mapper.filter import Filter
 from eodal.mapper.mapper import Mapper, MapperConfigs
+from eodal.metadata.sentinel2.parsing import parse_MTD_TL
 from eodal.utils.sentinel2 import get_S2_platform_from_safe
 from pathlib import Path
 from rtm_inv.core.lookup_table import generate_lut
@@ -29,6 +35,28 @@ logger = settings.logger
 
 # Sentinel-2 bands to extract and use for PROSAIL runs
 band_selection = ['B02','B03','B04','B05','B06','B07','B8A','B11','B12']
+
+def angles_from_mspc(url: str) -> Dict[str, float]:
+    """
+    Extract viewing and illumination angles from MS Planetary Computer
+    metadata XML (this is a work-around until STAC provides the angles
+    directly)
+
+    :param url:
+        URL to the metadata XML file
+    :returns:
+        extracted angles as dictionary
+    """
+    response = urllib.request.urlopen(planetary_computer.sign_url(url)).read()
+    temp_file = os.path.join(tempfile.gettempdir(),f'{uuid.uuid4()}.xml')
+    with open(temp_file, 'wb') as dst:
+        dst.write(response)
+
+    metadata = parse_MTD_TL(in_file=temp_file)
+    # get sensor zenith and azimuth angle
+    sensor_angles = ['SENSOR_ZENITH_ANGLE', 'SENSOR_AZIMUTH_ANGLE']
+    sensor_angle_dict = {k:v for k,v in metadata.items() if k in sensor_angles}
+    return sensor_angle_dict
 
 def preprocess_sentinel2_scenes(
         ds: Sentinel2,
@@ -88,6 +116,23 @@ def get_s2_mapper(
     # otherwise, it's necessary to query the data again
     # query metadata records
     mapper.query_scenes()
+
+    # extract the angular information about the sensor (still not
+    # part of the default STAC metadata). Since it's only a work-
+    # around it's a bit slow...
+    mapper.metadata['href_xml'] = mapper.metadata.assets.apply(
+        lambda x: x['granule-metadata']['href']
+    )
+    mapper.metadata['sensor_angles'] = mapper.metadata['href_xml'].apply(
+        lambda x, angles_from_mspc=angles_from_mspc: angles_from_mspc(x)
+    )
+    mapper.metadata['sensor_zenith_angle'] = mapper.metadata['sensor_angles'].apply(
+        lambda x: x['SENSOR_ZENITH_ANGLE']
+    )
+    mapper.metadata['sensor_azimuth_angle'] = mapper.metadata['sensor_angles'].apply(
+        lambda x: x['SENSOR_AZIMUTH_ANGLE']
+    )
+
     # load the Sentinel-2 scenes and resample them to 10 m, apply cloud masking
     scene_kwargs = {
         'scene_constructor': Sentinel2.from_safe,
@@ -279,7 +324,7 @@ if __name__ == '__main__':
 
     # metadata filters for retrieving S2 scenes
     metadata_filters = [
-        Filter('cloudy_pixel_percentage','<', 80),
+        Filter('cloudy_pixel_percentage','<', 70),
         Filter('processing_level', '==', 'Level-2A')
     ]
 
@@ -287,7 +332,8 @@ if __name__ == '__main__':
 
     import sys
     sites = sys.argv[1:]
-    site_dir = Path('../data/Test_Sites')
+    sites = ['Witzwil']
+    site_dir = Path('./data/Test_Sites')
 
     for site in sites:
         # read geometries
