@@ -23,6 +23,7 @@ formats = {
 
 logger = get_settings().logger
 
+
 def extract_raw_lai_timeseries(
     test_sites_dir: Path,
     s2_trait_dir: Path,
@@ -68,55 +69,77 @@ def extract_raw_lai_timeseries(
             ) for x in s2_obs_test_site
         ]
         # convert to dataframe for more convenient handling
-        s2_obs = pd.DataFrame({'sensing_time': s2_obs_times, 'fpath': s2_obs_test_site})
+        s2_obs = pd.DataFrame(
+            {'sensing_time': s2_obs_times, 'fpath': s2_obs_test_site})
         s2_obs.sort_values(by='sensing_time', inplace=True)
         s2_obs.index = s2_obs.sensing_time
         # scene collection for storing trait values
         for _, parcel in test_site_df.iterrows():
-            sowing_date = pd.to_datetime(parcel.sowing_date).tz_localize('Europe/Zurich')
-            harvest_date = pd.to_datetime(parcel.harvest_date).tz_localize('Europe/Zurich')
+            sowing_date = pd.to_datetime(parcel.sowing_date).tz_localize(
+                'Europe/Zurich')
+            harvest_date = pd.to_datetime(parcel.harvest_date).tz_localize(
+                'Europe/Zurich')
             s2_obs_parcel = s2_obs[sowing_date:harvest_date].copy()
             parcel_name = parcel['name']
-            # check which scenes have a <parcel_name> sub-folder. Due to no-data it might
-            # happen that some scenes did not cover the parcel. In this case, we do not consider
+            # check which scenes have a <parcel_name> sub-folder. Due
+            # to no-data it might happen that some scenes did not
+            # cover the parcel. In this case, we do not consider
             # these scenes any further
-            s2_obs_parcel['has_parcel_subfolder'] = s2_obs_parcel['fpath'].apply(
-                lambda x, parcel_name=parcel_name:
-                    x.joinpath(str(parcel_name)).exists()
-            )
-            s2_obs_parcel = s2_obs_parcel[s2_obs_parcel.has_parcel_subfolder].copy()
+            s2_obs_parcel['has_parcel_subfolder'] = \
+                s2_obs_parcel['fpath'].apply(
+                    lambda x, parcel_name=parcel_name:
+                        x.joinpath(str(parcel_name)).exists()
+                )
+            s2_obs_parcel = s2_obs_parcel[
+                s2_obs_parcel.has_parcel_subfolder].copy()
             if s2_obs_parcel.empty:
-                logger.warn(f'No data found for parcel {parcel_name} at {site_name}')
+                logger.warn(
+                    f'No data found for parcel {parcel_name} at {site_name}')
 
-            # drop duplicates based on the acquisition time. These might stem from different tiles
-            s2_obs_parcel.drop_duplicates(subset=['sensing_time'], keep='first', inplace=True)
+            # drop duplicates based on the acquisition time. These might
+            # stem from different tiles
+            s2_obs_parcel.drop_duplicates(
+                subset=['sensing_time'], keep='first', inplace=True)
 
-            # loop over observations and check for the selected phenological phase
+            # loop over observations and check for the selected
+            # phenological phase
             s2_obs_parcel['pheno_phase'] = s2_obs_parcel['fpath'].apply(
-                lambda x, relevant_phase=relevant_phase, parcel_name=parcel_name:
-                    x.joinpath(str(parcel_name)).joinpath(f'parcel_{parcel_name}_phase_{relevant_phase}')
+                lambda x, relevant_phase=relevant_phase,
+                parcel_name=parcel_name:
+                    x.joinpath(str(parcel_name)).joinpath(
+                        f'parcel_{parcel_name}_phase_{relevant_phase}')
             )
 
-            # check if result exists -> this actually identifies the timing of the phases
-            s2_obs_parcel['result_exists'] = s2_obs_parcel['pheno_phase'].apply(
-                lambda x: x.exists()
-            )
+            # check if result exists -> this actually identifies the timing of
+            # the phases
+            s2_obs_parcel['result_exists'] =\
+                s2_obs_parcel['pheno_phase'].apply(
+                    lambda x: x.exists()
+                )
 
-            # also include the two scenes before and after the identified period
-            # to account for the uncertainty in the identification of the period
-            s2_obs_parcel['number'] = [x for x in range(s2_obs_parcel.shape[0])]
+            # also include the two scenes before and after the identified
+            # period
+            # to account for the uncertainty in the identification of the
+            # period
+            s2_obs_parcel['number'] = [
+                x for x in range(s2_obs_parcel.shape[0])]
 
-            # TODO: This clause can be removed once the issue with the 2023 data is solved
+            # TODO: This clause can be removed once the issue with the
+            # 2023 data is solved
             try:
-                scene_before = s2_obs_parcel[s2_obs_parcel.result_exists]['number'][0] - 1
-            except Exception as e:
+                scene_before = s2_obs_parcel[
+                    s2_obs_parcel.result_exists]['number'][0] - 1
+            except Exception:
                 continue
             if scene_before >= 0:
-                scene_before_idx = s2_obs_parcel[s2_obs_parcel.number == scene_before].index[0]
+                scene_before_idx = s2_obs_parcel[
+                    s2_obs_parcel.number == scene_before].index[0]
                 s2_obs_parcel.loc[scene_before_idx, 'result_exists'] = True
-            scene_after = s2_obs_parcel[s2_obs_parcel.result_exists]['number'][-1] + 1
+            scene_after = s2_obs_parcel[
+                s2_obs_parcel.result_exists]['number'][-1] + 1
             if scene_after < s2_obs_parcel.shape[0]:
-                scene_after_idx = s2_obs_parcel[s2_obs_parcel.number == scene_after].index[0]
+                scene_after_idx = s2_obs_parcel[
+                    s2_obs_parcel.number == scene_after].index[0]
                 s2_obs_parcel.loc[scene_after_idx, 'result_exists'] = True
 
             s2_obs_parcel = s2_obs_parcel[s2_obs_parcel.result_exists].copy()
@@ -146,22 +169,29 @@ def extract_raw_lai_timeseries(
                     product_uri=s2_obs_date.fpath.name
                 )
                 s2_traits.scene_properties = scene_props
-                # try to add the scene. In some cases it might happen that a timestamps
-                # occurs twice, e.g., because the data is stored in multiple S2 tiles.
-                # in this case we use the average LAI value (there are small differences
-                # between the tiles because of the tile specific atmospheric correction)
+                # try to add the scene. In some cases it might happen that a
+                # timestamps occurs twice, e.g., because the data is stored
+                # in multiple S2 tiles.
+                # in this case we use the average LAI value (there are small
+                # differences between the tiles because of the tile specific
+                # atmospheric correction)
                 try:
                     scoll.add_scene(s2_traits)
                 except KeyError:
                     try:
-                        new_vals = (scoll[scoll.timestamps[-1]]['lai'] + s2_traits['lai']).values * 0.5
-                    # if the geometries do not align completely we keep the first scene
+                        new_vals = (scoll[scoll.timestamps[-1]]['lai'] +
+                                    s2_traits['lai']).values * 0.5
+                    # if the geometries do not align completely we keep
+                    # the first scene
                     except Operator.BandMathError:
                         continue
-                    new_product_uri = scoll[scoll.timestamps[-1]].scene_properties.product_uri + \
-                     '&&' + s2_traits.scene_properties.product_uri
+                    new_product_uri = scoll[
+                        scoll.timestamps[-1]].scene_properties.product_uri + \
+                        '&&' + s2_traits.scene_properties.product_uri
                     new_scene_properties = SceneProperties(
-                        acquisition_time=scoll[scoll.timestamps[-1]].scene_properties.acquisition_time,
+                        acquisition_time=scoll[
+                            scoll.timestamps[-1]
+                            ].scene_properties.acquisition_time,
                         product_uri=new_product_uri
                     )
                     # get a "new" scene
@@ -181,22 +211,29 @@ def extract_raw_lai_timeseries(
             scoll.sort('asc')
             # continue if no scenes were found
             if scoll.empty:
-                logger.warn(f'No scenes found for parcel {parcel_name} at {site_name}')
+                logger.warn(
+                    f'No scenes found for parcel {parcel_name} at {site_name}')
                 continue
 
             # extract the meteorological data (hourly)
-            fpath_meteo_site = meteo_dir.joinpath(f'{site_name}_Meteo_hourly.csv')
+            fpath_meteo_site = meteo_dir.joinpath(
+                f'{site_name}_Meteo_hourly.csv')
             meteo_site = pd.read_csv(fpath_meteo_site)
-            meteo_site.time = pd.to_datetime(meteo_site.time, format=formats[site_name])
+            meteo_site.time = pd.to_datetime(
+                meteo_site.time, format=formats[site_name])
             meteo_site.index = meteo_site.time
-            # we only need to have meteorological data for the S2 observations selected
+            # we only need to have meteorological data for the S2 observations
+            # selected
             min_time = pd.to_datetime(scoll.timestamps[0].split('+')[0])
             max_time = pd.to_datetime(scoll.timestamps[-1].split('+')[0])
-            meteo_site_parcel = meteo_site[min_time.date():max_time.date()].copy()[['time', 'T_mean']]
-            meteo_site_parcel.index = [x for x in range(meteo_site_parcel.shape[0])]
+            meteo_site_parcel = meteo_site[
+                min_time.date():max_time.date()].copy()[['time', 'T_mean']]
+            meteo_site_parcel.index = [
+                x for x in range(meteo_site_parcel.shape[0])]
 
             # save data to output directory
-            out_dir_parcel = out_dir.joinpath(f'parcel_{parcel_name}_{min_time.date()}-{max_time.date()}')
+            out_dir_parcel = out_dir.joinpath(
+                f'parcel_{parcel_name}_{min_time.date()}-{max_time.date()}')
             out_dir_parcel.mkdir(exist_ok=True)
 
             # save "raw" LAI values as pickle
@@ -206,7 +243,8 @@ def extract_raw_lai_timeseries(
 
             # save "raw" LAI values as table using all pixels in the parcels
             # so that it is easier to work with the data
-            # we use xarray as an intermediate to convert it to a pandas DataFrame
+            # we use xarray as an intermediate to convert it to a pandas
+            # DataFrame
             xarr = scoll.to_xarray()
             df = xarr.to_dataframe(name='lai').reset_index()
             # drop nan's (these are the pixels outside the parcel)
@@ -220,27 +258,34 @@ def extract_raw_lai_timeseries(
             # plot data LAI as a map
             f = scoll.plot(
                 band_selection='lai',
-                figsize=(5*len(scoll),5),
+                figsize=(5*len(scoll), 5),
                 max_scenes_in_row=len(scoll)
             )
             f.savefig(out_dir_parcel.joinpath('raw_lai_values.png'))
             plt.close(f)
 
             # save hourly meteo data
-            meteo_site_parcel.to_csv(out_dir_parcel.joinpath('hourly_mean_temperature.csv'), index=False)
-            f, ax = plt.subplots(figsize=(8,5))
-            ax.plot(meteo_site_parcel.time, meteo_site_parcel['T_mean'].astype(float))
+            meteo_site_parcel.to_csv(out_dir_parcel.joinpath(
+                'hourly_mean_temperature.csv'), index=False)
+            f, ax = plt.subplots(figsize=(8, 5))
+            ax.plot(
+                meteo_site_parcel.time, meteo_site_parcel['T_mean'].astype(
+                    float))
             ax.set_ylabel('Mean Air Temperature 2m above ground [deg C]')
             plt.xticks(rotation=90)
-            f.savefig(out_dir_parcel.joinpath('hourly_mean_temperature.png'), bbox_inches='tight')
+            f.savefig(out_dir_parcel.joinpath(
+                'hourly_mean_temperature.png'), bbox_inches='tight')
             plt.close(f)
 
-            logger.info(f'Prepared LAI data for parcel {parcel_name} at {site_name}')
+            logger.info(
+                f'Prepared LAI data for parcel {parcel_name} at {site_name}')
+
 
 if __name__ == '__main__':
 
     test_sites_dir = Path('./data/Test_Sites')
-    s2_trait_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')
+    s2_trait_dir = Path(
+        '/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')  # noqa: E501
     # s2_trait_dir = Path('/mnt/ides/Lukas/04_Work/S2_Traits')
     relevant_phase = 'stemelongation-endofheading'
     meteo_dir = Path('./data/Meteo')
