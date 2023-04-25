@@ -1,5 +1,7 @@
 '''
-Module to extract Sentinel-2 imagery for the test sites
+Module to extract Sentinel-2 imagery for the test sites.
+Runs PROSAIL in forward mode to generate lookup tables
+for the inversion.
 
 @author: Lukas Valentin Graf
 '''

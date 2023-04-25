@@ -20,7 +20,8 @@ from rtm_inv.core.inversion import inv_img, retrieve_traits
 logger = get_settings().logger
 warnings.filterwarnings('ignore')
 
-band_selection = ['B02','B03','B04','B05','B06','B07','B8A','B11','B12']
+band_selection = [
+    'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B8A', 'B11', 'B12']
 
 
 def extract_s2_traits(
@@ -30,9 +31,22 @@ def extract_s2_traits(
     cost_functions: Dict[str, str],
     aggregation_methods: Dict[str, str],
     lut_sizes: Dict[str, str]
-):
+) -> None:
     """
-    Lookup table based inversion
+    Lookup table based inversion of Sentinel-2 imagery.
+
+    :param data_dir:
+        directory with Sentinel-2 imagery
+    :param farms:
+        list of farm names
+    :param n_solutions:
+        number of solutions to retrieve
+    :param cost_functions:
+        cost functions to use for inversion
+    :param aggregation_methods:
+        aggregation methods to use for inversion
+    :param lut_sizes:
+        number of LUT entries to use for inversion
     """
     # loop over locations
     for farm in farms:
@@ -44,7 +58,8 @@ def extract_s2_traits(
         for scene_dir in farm_dir.glob('*.SAFE'):
             # load the Sentinel-2 data
             fpath_s2_raster = scene_dir.joinpath('SRF_S2.tiff')
-            s2_ds = RasterCollection.from_multi_band_raster(fpath_raster=fpath_s2_raster)
+            s2_ds = RasterCollection.from_multi_band_raster(
+                fpath_raster=fpath_s2_raster)
             s2_spectra = s2_ds.get_values(band_selection=band_selection)
             bands = s2_ds.band_names
             bands.remove('SCL')
@@ -54,26 +69,31 @@ def extract_s2_traits(
             for fpath_lut in scene_dir.glob('*lut.pkl'):
                 lut = pd.read_pickle(fpath_lut)
                 pheno_phase = fpath_lut.name.split('_')[0]
-                if pheno_phase == 'all': pheno_phase = 'all_phases'
+                if pheno_phase == 'all':
+                    pheno_phase = 'all_phases'
 
                 # check if inversion results exists already
                 fname = scene_dir.joinpath(f'{pheno_phase}_lutinv_traits.tiff')
-                if fname.exists(): continue
+                if fname.exists():
+                    continue
 
                 # draw sub-sample from LUT if required
                 if lut_sizes[pheno_phase] < lut.shape[0]:
                     lut = lut.sample(lut_sizes[pheno_phase])
 
-                # invert the S2 scene by comparing ProSAIL simulated to S2 observed spectra
+                # invert the S2 scene by comparing ProSAIL simulated to S2
+                # observed spectra
                 s2_lut_spectra = lut[bands].values
-            
+
                 if isinstance(s2_spectra, np.ma.MaskedArray):
-                    mask = s2_spectra.mask[0,:,:]
+                    mask = s2_spectra.mask[0, :, :]
                     s2_spectra = s2_spectra.data
                 else:
-                    mask = np.zeros(shape=(s2_spectra.shape[1], s2_spectra.shape[2]), dtype='uint8')
+                    mask = np.zeros(
+                        shape=(s2_spectra.shape[1], s2_spectra.shape[2]),
+                        dtype='uint8')
                     mask = mask.astype('bool')
-                    mask[s2_spectra[0,:,:] == 0] = True
+                    mask[s2_spectra[0, :, :] == 0] = True
 
                 lut_idxs, cost_function_values = inv_img(
                     lut=s2_lut_spectra,
@@ -89,7 +109,7 @@ def extract_s2_traits(
                     cost_function_values=cost_function_values,
                     measure=aggregation_methods[pheno_phase]
                 )
-    
+
                 # save traits to file
                 trait_collection = RasterCollection()
                 for tdx, trait in enumerate(['lai', 'ccc']):
@@ -97,27 +117,31 @@ def extract_s2_traits(
                         Band,
                         geo_info=s2_ds['B02'].geo_info,
                         band_name=trait,
-                        values=trait_img[tdx,:,:]
+                        values=trait_img[tdx, :, :]
                     )
                     trait_collection.add_band(
                         Band,
                         geo_info=s2_ds['B02'].geo_info,
                         band_name=f'{trait}_q05',
-                        values=q05_img[tdx,:,:]
+                        values=q05_img[tdx, :, :]
                     )
                     trait_collection.add_band(
                         Band,
                         geo_info=s2_ds['B02'].geo_info,
                         band_name=f'{trait}_q95',
-                        values=q95_img[tdx,:,:]
+                        values=q95_img[tdx, :, :]
                     )
                 # save lowest, median and highest cost function value
-                highest_cost_function_vals = cost_function_values[-1,:,:]
-                highest_cost_function_vals[np.isnan(trait_img[0,:,:])] = np.nan
-                lowest_cost_function_vals = cost_function_values[0,:,:]
-                lowest_cost_function_vals[np.isnan(trait_img[0,:,:])] = np.nan
-                median_cost_function_vals = np.median(cost_function_values[:,:,:], axis=0)
-                median_cost_function_vals[np.isnan(trait_img[0,:,:])] = np.nan
+                highest_cost_function_vals = cost_function_values[-1, :, :]
+                highest_cost_function_vals[np.isnan(trait_img[0, :, :])] = \
+                    np.nan
+                lowest_cost_function_vals = cost_function_values[0, :, :]
+                lowest_cost_function_vals[np.isnan(trait_img[0, :, :])] = \
+                    np.nan
+                median_cost_function_vals = np.median(
+                    cost_function_values[:, :, :], axis=0)
+                median_cost_function_vals[np.isnan(trait_img[0, :, :])] = \
+                    np.nan
                 trait_collection.add_band(
                     Band,
                     geo_info=s2_ds['B02'].geo_info,
