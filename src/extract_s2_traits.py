@@ -14,14 +14,14 @@ from eodal.core.raster import RasterCollection
 from pathlib import Path
 from typing import Dict, List
 
-from rtm_inv.core.config import RTMConfig, LookupTableBasedInversion
 from rtm_inv.core.inversion import inv_img, retrieve_traits
-from rtm_inv.core.lookup_table import generate_lut
+
 
 logger = get_settings().logger
 warnings.filterwarnings('ignore')
 
 band_selection = ['B02','B03','B04','B05','B06','B07','B8A','B11','B12']
+
 
 def extract_s2_traits(
     data_dir: Path,
@@ -141,10 +141,12 @@ def extract_s2_traits(
 
             logger.info(f'{farm}: Finished inversion of {scene_dir.name}')
 
+
 if __name__ == '__main__':
 
     farms = ['Strickhof', 'Witzwil']
-    data_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')
+    data_dir = Path(
+        '/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')  # noqa: E501
 
     cost_functions = {
         'all_phases': 'mae',

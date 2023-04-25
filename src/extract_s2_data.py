@@ -15,7 +15,6 @@ import tempfile
 import urllib
 import uuid
 
-from datetime import datetime
 from eodal.config import get_settings
 from eodal.core.scene import SceneCollection
 from eodal.core.sensors.sentinel2 import Sentinel2
@@ -23,7 +22,6 @@ from eodal.mapper.feature import Feature
 from eodal.mapper.filter import Filter
 from eodal.mapper.mapper import Mapper, MapperConfigs
 from eodal.metadata.sentinel2.parsing import parse_MTD_TL
-from eodal.utils.sentinel2 import get_S2_platform_from_safe
 from pathlib import Path
 from rtm_inv.core.lookup_table import generate_lut
 from shapely.geometry import box
@@ -34,7 +32,9 @@ settings.USE_STAC = True
 logger = settings.logger
 
 # Sentinel-2 bands to extract and use for PROSAIL runs
-band_selection = ['B02','B03','B04','B05','B06','B07','B8A','B11','B12']
+band_selection = [
+    'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B8A', 'B11', 'B12']
+
 
 def angles_from_mspc(url: str) -> Dict[str, float]:
     """
@@ -48,20 +48,22 @@ def angles_from_mspc(url: str) -> Dict[str, float]:
         extracted angles as dictionary
     """
     response = urllib.request.urlopen(planetary_computer.sign_url(url)).read()
-    temp_file = os.path.join(tempfile.gettempdir(),f'{uuid.uuid4()}.xml')
+    temp_file = os.path.join(tempfile.gettempdir(), f'{uuid.uuid4()}.xml')
     with open(temp_file, 'wb') as dst:
         dst.write(response)
 
     metadata = parse_MTD_TL(in_file=temp_file)
     # get sensor zenith and azimuth angle
     sensor_angles = ['SENSOR_ZENITH_ANGLE', 'SENSOR_AZIMUTH_ANGLE']
-    sensor_angle_dict = {k:v for k,v in metadata.items() if k in sensor_angles}
+    sensor_angle_dict = {
+        k: v for k, v in metadata.items() if k in sensor_angles}
     return sensor_angle_dict
+
 
 def preprocess_sentinel2_scenes(
         ds: Sentinel2,
         target_resolution: int,
-    ) -> Sentinel2:
+) -> Sentinel2:
     """
     Resample Sentinel-2 scenes and mask clouds, shadows, and snow
     based on the Scene Classification Layer (SCL).
@@ -82,6 +84,7 @@ def preprocess_sentinel2_scenes(
     ds.mask_clouds_and_shadows(inplace=True)
     return ds
 
+
 def get_s2_mapper(
     s2_mapper_config: MapperConfigs,
     output_dir: Path
@@ -90,8 +93,8 @@ def get_s2_mapper(
     Setup an EOdal `Mapper` instance, query and load Sentinel-2 data
 
     :param s2_mapper_config:
-        configuration telling EOdal what to do (which geographic region and time
-        period should be processed)
+        configuration telling EOdal what to do (which geographic region and
+        time period should be processed)
     :param output_dir:
         directory where to store the query for documentation
     :returns:
