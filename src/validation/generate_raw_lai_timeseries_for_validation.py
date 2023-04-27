@@ -10,8 +10,8 @@ import pandas as pd
 from eodal.config import get_settings
 from eodal.core.band import Band
 from eodal.core.operators import Operator
-from eodal.core.raster import RasterCollection
-from eodal.core.scene import SceneProperties, SceneCollection
+from eodal.core.raster import RasterCollection, SceneProperties
+from eodal.core.scene import SceneCollection
 from pathlib import Path
 
 logger = get_settings().logger
@@ -69,7 +69,7 @@ def extract_raw_lai_timeseries(
                 if not scene.joinpath('validation').exists():
                     continue
                 # get the LAI data
-                lai_file = scene.joinpath('validation', 'traits.tif')
+                lai_file = scene.joinpath('validation', 'traits.tiff')
                 # read results into RasterCollection
                 s2_traits = RasterCollection.from_multi_band_raster(
                     fpath_raster=lai_file,
