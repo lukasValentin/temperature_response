@@ -1,5 +1,7 @@
 '''
 Trait extraction from Sentinel-2 imagery by radiative transfer model inversion.
+The required lookup tables have been generated in the previous step (i.e.,
+`extract_s2_data.py`).
 
 @author: Lukas Valentin Graf
 '''
@@ -168,10 +170,12 @@ def extract_s2_traits(
 
 if __name__ == '__main__':
 
-    farms = ['Strickhof', 'Witzwil']
+    # list of farms to process
+    farms = ['Strickhof', 'Witzwil', 'SwissFutureFarm']
     data_dir = Path(
         '/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')  # noqa: E501
 
+    # inversion set-up for the different phenological phases
     cost_functions = {
         'all_phases': 'mae',
         'germination-endoftillering': 'rmse',
