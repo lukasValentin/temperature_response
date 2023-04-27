@@ -52,6 +52,8 @@ def get_lai_model_results_for_validation(
         insitu_bbch = gpd.read_file(fpath_bbch)
         # convert date to pd.to_datetime
         insitu_lai['date'] = pd.to_datetime(insitu_lai['date'])
+        insitu_lai['parcel'] = insitu_lai['parcel'].apply(
+            lambda x: 'Parzelle35' if x == 'Parzelle 35' else x)
         insitu_bbch['date'] = pd.to_datetime(insitu_bbch['date'])
         # join LAI and BBCH data on date and parcel
         insitu = pd.merge(
@@ -61,6 +63,9 @@ def get_lai_model_results_for_validation(
         insitu = insitu[
             (insitu['BBCH Rating'] >= BBCH_MIN) &
             (insitu['BBCH Rating'] <= BBCH_MAX)].copy()
+        insitu_bbch = insitu_bbch[
+            (insitu_bbch['BBCH Rating'] >= BBCH_MIN) &
+            (insitu_bbch['BBCH Rating'] <= BBCH_MAX)].copy()
 
         # convert insitu data to GeoDataFrame
         insitu = gpd.GeoDataFrame(
@@ -81,6 +86,7 @@ def get_lai_model_results_for_validation(
             farm_dir = trait_dir.joinpath(farm)
             if not farm_dir.exists():
                 continue
+
             # get parcel geometries for the farm
             fpath_gpkg = test_site_dir.joinpath(f'{farm}.gpkg')
             test_site_gdf = gpd.read_file(fpath_gpkg)
@@ -92,16 +98,18 @@ def get_lai_model_results_for_validation(
             test_site_gdf = test_site_gdf[
                 test_site_gdf['sowing_year'] == year - 1].copy()
 
-            # get the in-situ data for the farm
-            farm_insitu = insitu[insitu['location'] == farm].copy()
+            # get the in-situ BBCH data for the farm
+            farm_insitu = insitu_bbch[insitu_bbch['location'] == farm].copy()
+            farm_insitu_min = farm_insitu['date'].min()
+            farm_insitu_max = farm_insitu['date'].max()
+
             # loop over scenes in farm
             for scene_dir in farm_dir.glob('*.SAFE'):
                 # get the date of the scene
                 date = pd.to_datetime(scene_dir.name.split('_')[2])
                 # check if the scene is in the stem elongation phase
-                if not (
-                    date >= farm_insitu['date'].min() and
-                        date <= farm_insitu['date'].max()):
+                if not (date >= farm_insitu_min and
+                        date <= farm_insitu_max):
                     continue
                 # check if an inversion result for the stem-elongation phase
                 # has been generated already
