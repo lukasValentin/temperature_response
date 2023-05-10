@@ -6,6 +6,7 @@ import pandas as pd
 
 from pathlib import Path
 
+
 def from_meteoswiss(fpath: Path) -> pd.DataFrame:
     """
     read data from MeteoSwiss and convert it into CSV
@@ -21,10 +22,12 @@ def from_meteoswiss(fpath: Path) -> pd.DataFrame:
     df['time'] = pd.to_datetime(df.time, format='%Y%m%d%H')
     return df
 
+
 if __name__ == '__main__':
 
     fpath = Path('data/Meteo/order111046/order_111046_data.txt')
     df_meteo = from_meteoswiss(fpath=fpath)
     # save data
-    fpath_out = fpath.parent.parent.joinpath('SwissFutureFarm_Meteo_hourly.csv')
+    fpath_out = fpath.parent.parent.joinpath(
+        'SwissFutureFarm_Meteo_hourly.csv')
     df_meteo.to_csv(fpath_out)

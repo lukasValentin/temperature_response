@@ -1,5 +1,7 @@
 '''
-Module to extract Sentinel-2 imagery for the test sites
+Module to extract Sentinel-2 imagery for the test sites.
+Runs PROSAIL in forward mode to generate lookup tables
+for the inversion.
 
 @author: Lukas Valentin Graf
 '''
@@ -15,7 +17,6 @@ import tempfile
 import urllib
 import uuid
 
-from datetime import datetime
 from eodal.config import get_settings
 from eodal.core.scene import SceneCollection
 from eodal.core.sensors.sentinel2 import Sentinel2
@@ -23,7 +24,6 @@ from eodal.mapper.feature import Feature
 from eodal.mapper.filter import Filter
 from eodal.mapper.mapper import Mapper, MapperConfigs
 from eodal.metadata.sentinel2.parsing import parse_MTD_TL
-from eodal.utils.sentinel2 import get_S2_platform_from_safe
 from pathlib import Path
 from rtm_inv.core.lookup_table import generate_lut
 from shapely.geometry import box
@@ -34,7 +34,9 @@ settings.USE_STAC = True
 logger = settings.logger
 
 # Sentinel-2 bands to extract and use for PROSAIL runs
-band_selection = ['B02','B03','B04','B05','B06','B07','B8A','B11','B12']
+band_selection = [
+    'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B8A', 'B11', 'B12']
+
 
 def angles_from_mspc(url: str) -> Dict[str, float]:
     """
@@ -48,20 +50,22 @@ def angles_from_mspc(url: str) -> Dict[str, float]:
         extracted angles as dictionary
     """
     response = urllib.request.urlopen(planetary_computer.sign_url(url)).read()
-    temp_file = os.path.join(tempfile.gettempdir(),f'{uuid.uuid4()}.xml')
+    temp_file = os.path.join(tempfile.gettempdir(), f'{uuid.uuid4()}.xml')
     with open(temp_file, 'wb') as dst:
         dst.write(response)
 
     metadata = parse_MTD_TL(in_file=temp_file)
     # get sensor zenith and azimuth angle
     sensor_angles = ['SENSOR_ZENITH_ANGLE', 'SENSOR_AZIMUTH_ANGLE']
-    sensor_angle_dict = {k:v for k,v in metadata.items() if k in sensor_angles}
+    sensor_angle_dict = {
+        k: v for k, v in metadata.items() if k in sensor_angles}
     return sensor_angle_dict
+
 
 def preprocess_sentinel2_scenes(
         ds: Sentinel2,
         target_resolution: int,
-    ) -> Sentinel2:
+) -> Sentinel2:
     """
     Resample Sentinel-2 scenes and mask clouds, shadows, and snow
     based on the Scene Classification Layer (SCL).
@@ -82,6 +86,7 @@ def preprocess_sentinel2_scenes(
     ds.mask_clouds_and_shadows(inplace=True)
     return ds
 
+
 def get_s2_mapper(
     s2_mapper_config: MapperConfigs,
     output_dir: Path
@@ -90,8 +95,8 @@ def get_s2_mapper(
     Setup an EOdal `Mapper` instance, query and load Sentinel-2 data
 
     :param s2_mapper_config:
-        configuration telling EOdal what to do (which geographic region and time
-        period should be processed)
+        configuration telling EOdal what to do (which geographic region and
+        time period should be processed)
     :param output_dir:
         directory where to store the query for documentation
     :returns:
@@ -126,12 +131,13 @@ def get_s2_mapper(
     mapper.metadata['sensor_angles'] = mapper.metadata['href_xml'].apply(
         lambda x, angles_from_mspc=angles_from_mspc: angles_from_mspc(x)
     )
-    mapper.metadata['sensor_zenith_angle'] = mapper.metadata['sensor_angles'].apply(
-        lambda x: x['SENSOR_ZENITH_ANGLE']
-    )
-    mapper.metadata['sensor_azimuth_angle'] = mapper.metadata['sensor_angles'].apply(
-        lambda x: x['SENSOR_AZIMUTH_ANGLE']
-    )
+    mapper.metadata['sensor_zenith_angle'] = \
+        mapper.metadata['sensor_angles'].apply(
+            lambda x: x['SENSOR_ZENITH_ANGLE'])
+
+    mapper.metadata['sensor_azimuth_angle'] = \
+        mapper.metadata['sensor_angles'].apply(
+            lambda x: x['SENSOR_AZIMUTH_ANGLE'])
 
     # load the Sentinel-2 scenes and resample them to 10 m, apply cloud masking
     scene_kwargs = {
@@ -149,20 +155,23 @@ def get_s2_mapper(
         if scene.is_blackfilled:
             scenes_to_del.append(scene_id)
             mapper.metadata.loc[
-                mapper.metadata.sensing_time.dt.strftime('%Y-%m-%d %H:%M') == \
-                scene_id.strftime('%Y-%m-%d %H:%M')[0:16], 'scene_used'] = 'No [blackfill]'
+                mapper.metadata.sensing_time.dt.strftime('%Y-%m-%d %H:%M') ==
+                scene_id.strftime(
+                    '%Y-%m-%d %H:%M')[0:16], 'scene_used'] = 'No [blackfill]'
             continue
         if scene['blue'].values.mask.all():
             scenes_to_del.append(scene_id)
             mapper.metadata.loc[
-                mapper.metadata.sensing_time.dt.strftime('%Y-%m-%d %H:%M') == \
-                scene_id.strftime('%Y-%m-%d %H:%M')[0:16], 'scene_used'] = 'No [clouds]'
+                mapper.metadata.sensing_time.dt.strftime('%Y-%m-%d %H:%M') ==
+                scene_id.strftime(
+                    '%Y-%m-%d %H:%M')[0:16], 'scene_used'] = 'No [clouds]'
             continue
     # delete scenes too cloudy or containing only no-data
     for scene_id in scenes_to_del:
         del mapper.data[scene_id]
     # save the MapperConfigs as yaml file
-    s2_mapper_config.to_yaml(fpath=output_dir.joinpath('eodal_mapper_configs.yml'))
+    s2_mapper_config.to_yaml(
+        fpath=output_dir.joinpath('eodal_mapper_configs.yml'))
     # save the mapper data as pickled object so it can be loaded again
     with open(fpath_mapper, 'wb+') as dst:
         dst.write(mapper.data.to_pickle())
@@ -172,7 +181,8 @@ def get_s2_mapper(
     if 'real_path' in mapper.metadata.columns:
         mapper.metadata.real_path = mapper.metadata.real_path.astype(str)
     if '_processing_level' in mapper.metadata.columns:
-        mapper.metadata._processing_level = mapper.metadata._processing_level.astype(str)
+        mapper.metadata._processing_level = \
+            mapper.metadata._processing_level.astype(str)
     # drop the original XMLs as they are too large
     if 'mtd_tl_xml' in mapper.metadata.columns:
         mapper.metadata.drop(columns=['mtd_tl_xml'], inplace=True)
@@ -181,6 +191,7 @@ def get_s2_mapper(
     mapper.metadata.to_file(fpath_metadata)
 
     return mapper
+
 
 def get_s2_spectra(
     output_dir: Path,
@@ -197,8 +208,8 @@ def get_s2_spectra(
     :param lut_params_dir:
         directory where the PROSAIL inputs are stored
     :param s2_mapper_config:
-        configuration telling EOdal what to do (which geographic region and time
-        period should be processed)
+        configuration telling EOdal what to do (which geographic region and
+        time period should be processed)
     :param rtm_lut_config:
         configuration telling how to build the lookup tables (LUTs) required
         to run PROSAIL
@@ -219,19 +230,22 @@ def get_s2_spectra(
                 continue
         # make sure we're looking at the right metadata
         metadata = s2_metadata[
-            s2_metadata.sensing_date.dt.date == \
+            s2_metadata.sensing_date.dt.date ==
             scene.scene_properties.acquisition_time.date()
         ]
         # to speed model development introduce some calendar checks, i.e., we
         # don't need to run all simulations all the time
         scene_month = pd.to_datetime(metadata.sensing_time.iloc[0]).month
         pheno_phase_selection = None
-        if scene_month in [10,11,12,1,2]:
+        if scene_month in [10, 11, 12, 1, 2]:
             pheno_phase_selection = ['germination-endoftillering']
-        elif scene_month in [3,4]:
-            pheno_phase_selection = ['germination-endoftillering', 'stemelongation-endofheading']
+        elif scene_month in [3, 4]:
+            pheno_phase_selection = [
+                'germination-endoftillering', 'stemelongation-endofheading']
         elif scene_month in [5, 6, 7, 8]:
-            pheno_phase_selection = ['stemelongation-endofheading', 'flowering-fruitdevelopment-plantdead']
+            pheno_phase_selection = [
+                'stemelongation-endofheading',
+                'flowering-fruitdevelopment-plantdead']
         elif scene_month in [9]:
             # there should be no winter wheat growing in September
             continue
@@ -251,7 +265,8 @@ def get_s2_spectra(
         platform = full_names[platform]
         rtm_lut_config.update({'sensor': platform})
 
-        # save spectra and PROSAIL simulations in a sub-directory for each scene
+        # save spectra and PROSAIL simulations in a sub-directory for
+        # each scene
         res_dir_scene = output_dir.joinpath(metadata['product_uri'].iloc[0])
         if not str(res_dir_scene).endswith('.SAFE'):
             res_dir_scene = Path(str(res_dir_scene) + '.SAFE')
@@ -267,20 +282,23 @@ def get_s2_spectra(
         # run PROSAIL forward runs for the different parametrizations available
         logger.info(f'{metadata.product_uri.iloc[0]} starting PROSAIL runs')
         for lut_params_pheno in lut_params_dir.glob('*.csv'):
-            pheno_phases = lut_params_pheno.name.split('etal')[-1].split('.')[0][1::]
+            pheno_phases = lut_params_pheno.name.split(
+                'etal')[-1].split('.')[0][1::]
             if pheno_phase_selection is not None:
                 if pheno_phases not in pheno_phase_selection:
                     continue
-    
+
             # generate lookup-table for the current angles
-            fpath_lut = res_dir_scene.joinpath(f'{pheno_phases}_{trait_str}_lut.pkl')
+            fpath_lut = res_dir_scene.joinpath(
+                f'{pheno_phases}_{trait_str}_lut.pkl')
             # if LUT exists, continue, else generate it
             if not fpath_lut.exists():
                 lut_inp = rtm_lut_config.copy()
                 lut_inp.update(angle_dict)
                 lut_inp['lut_params'] = lut_params_pheno
                 lut = generate_lut(**lut_inp)
-                # special case CCC (Canopy Chlorophyll Content) -> this is not a direct RTM output
+                # special case CCC (Canopy Chlorophyll Content) ->
+                # this is not a direct RTM output
                 if 'ccc' in traits:
                     lut['ccc'] = lut['lai'] * lut['cab']
                     # convert to g m-2 as this is the more common unit
@@ -289,11 +307,11 @@ def get_s2_spectra(
             else:
                 logger.info(f'{fpath_lut} already exists --> skipping')
                 continue
-    
+
             # prepare LUT for model training
             lut = lut[band_selection + traits].copy()
             lut.dropna(inplace=True)
-    
+
             # save LUT to file
             if not fpath_lut.exists():
                 with open(fpath_lut, 'wb+') as f:
@@ -301,14 +319,17 @@ def get_s2_spectra(
 
         logger.info(f'{metadata.product_uri.iloc[0]} finished PROSAIL runs')
 
+
 if __name__ == '__main__':
 
-    ### global setup
-    out_dir = Path('/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')
+    # global setup
+    out_dir = Path(
+        '/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')  # noqa: E501
     out_dir.mkdir(exist_ok=True)
 
     # spectral response function of Sentinel-2 for resampling PROSAIL output
-    fpath_srf = Path('../data/auxiliary/S2-SRF_COPE-GSEG-EOPG-TN-15-0007_3.1.xlsx')
+    fpath_srf = Path(
+        '../data/auxiliary/S2-SRF_COPE-GSEG-EOPG-TN-15-0007_3.1.xlsx')
     # RTM configurations for lookup-table generation
     rtm_lut_config = {
         'lut_size': 50000,
@@ -325,7 +346,7 @@ if __name__ == '__main__':
 
     # metadata filters for retrieving S2 scenes
     metadata_filters = [
-        Filter('cloudy_pixel_percentage','<', 70),
+        Filter('cloudy_pixel_percentage', '<', 70),
         Filter('processing_level', '==', 'Level-2A')
     ]
 
