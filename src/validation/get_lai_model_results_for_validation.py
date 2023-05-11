@@ -19,7 +19,7 @@ from typing import List
 logger = get_settings().logger
 
 # define BBCH range for stem elongation
-BBCH_MIN = 31
+BBCH_MIN = 30
 BBCH_MAX = 59
 
 
