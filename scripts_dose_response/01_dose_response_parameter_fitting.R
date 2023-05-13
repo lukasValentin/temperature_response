@@ -18,7 +18,7 @@ base_path_data <- "O:/Projects/KP0030_ftschurr/GIT_repos/scripts_paper_3/results
 location_id = "CH_Bramenwies"
 response_curve_types <- c("WangEngels")
 response_curve_types <- c("non_linear", "asymptotic","WangEngels")
-# response_curve_types <- c("non_linear", "asymptotic")
+response_curve_types <- c("non_linear", "asymptotic")
 
 # script
 ################################################################################
@@ -152,6 +152,7 @@ for(variable in variables){
     combined_output[["complete_output"]] <- output
     combined_output[["parameter_range_output"]] <- all_statistics_output
     # crate directory
+    # browser()
     output_path_base <- paste0(base_path_data,"/output/parameter_model/",response_curve_type)
     
     dir.create(output_path_base,recursive = T, showWarnings = F)
@@ -167,6 +168,11 @@ for(variable in variables){
     parameters <- get_median_of_parameters(output)
     names(parameters) <- names(median_output$meta$parameter_list)
     
+    # write just parameters into data.frame
+    parameters_df <- data.frame(parameter_name = names(parameters), parameter_value = as.numeric(parameters))
+    out_file_name_parameters <- paste0(response_curve_type,"_variable_",variable,"_parameter_" ,env_variable,"_location_",location_id,".csv")
+    write.csv(parameters_df, file= paste0(output_path_base,"/",out_file_name_parameters))
+    
     lapply(combined_measurement_list, .response_function_prediction., parameters)
     
     # debug not paralellized
@@ -174,7 +180,7 @@ for(variable in variables){
     granularity <- "daily"
     # numCores <- detectCores()
     # cl <- makePSOCKcluster(numCores)
-    predictions[[variable]][[response_curve_type]][["modelled"]]<- parLapplyLB(cl,pheno_list, pred_helper, .response_function_prediction., parameters,weight_parameter, granularity)
+    # predictions[[variable]][[response_curve_type]][["modelled"]]<- parLapplyLB(cl,pheno_list, pred_helper, .response_function_prediction., parameters,weight_parameter, granularity)
     # stopCluster(cl)
     
     

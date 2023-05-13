@@ -125,7 +125,7 @@ def extract_raw_lai_timeseries(
                     scoll.add_scene(new_scene)
 
             # make sure the scene are sorted chronologically
-            scoll.sort('asc')
+            scoll = scoll.sort('asc')
             # continue if no scenes were found
             if scoll.empty:
                 logger.warn(
@@ -141,8 +141,13 @@ def extract_raw_lai_timeseries(
             meteo_site.index = meteo_site.time
             # we only need to have meteorological data for the S2 observations
             # selected
-            min_time = pd.to_datetime(scoll.timestamps[0].split('+')[0])
-            max_time = pd.to_datetime(scoll.timestamps[-1].split('+')[0])
+            try:
+                min_time = pd.to_datetime(scoll.timestamps[0].split('+')[0])
+            except Exception as e:
+                logger.error(e)
+                continue
+            max_time = pd.to_datetime(scoll.timestamps[-1].split('+')[0]) + \
+                pd.Timedelta(days=1)   # add one day to include the last day
             meteo_site_parcel = meteo_site[
                 min_time.date():max_time.date()].copy()[['time', 'T_mean']]
             meteo_site_parcel.index = [
@@ -208,7 +213,7 @@ if __name__ == '__main__':
     out_dir.mkdir(exist_ok=True)
 
     farms = ['Witzwil', 'Strickhof', 'SwissFutureFarm']
-    years = [2022, 2023]
+    years = [2022] # , 2023]
 
     extract_raw_lai_timeseries(
         test_sites_dir=test_sites_dir,
