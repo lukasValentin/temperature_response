@@ -20,6 +20,7 @@ formats = {
     'Witzwil': '%Y-%m-%d %H:%M:%S',
     'Strickhof': '%d.%m.%Y %H:%M'
 }
+traits = ['lai', 'ccc']
 
 logger = get_settings().logger
 
@@ -156,11 +157,9 @@ def extract_raw_lai_timeseries(
                     continue
                 # read parcel results
                 s2_traits = RasterCollection.from_multi_band_raster(
-                    fpath_raster=fpath_s2_traits,
-                    band_idxs=[1],
-                    band_aliases=['lai'],
-                    band_names_dst=['lai']
+                    fpath_raster=fpath_s2_traits
                 )
+
                 # check if the result contains actual data
                 if np.isnan(s2_traits['lai'].values).all():
                     continue
@@ -179,12 +178,17 @@ def extract_raw_lai_timeseries(
                     scoll.add_scene(s2_traits)
                 except KeyError:
                     try:
-                        new_vals = (scoll[scoll.timestamps[-1]]['lai'] +
-                                    s2_traits['lai']).values * 0.5
+                        new_vals_traits = {}
+                        for trait in traits:
+                            new_vals = (scoll[scoll.timestamps[-1]][trait] +
+                                        s2_traits[trait]).values * 0.5
+                            new_vals_traits[trait] = new_vals
+
                     # if the geometries do not align completely we keep
                     # the first scene
                     except Operator.BandMathError:
                         continue
+
                     new_product_uri = scoll[
                         scoll.timestamps[-1]].scene_properties.product_uri + \
                         '&&' + s2_traits.scene_properties.product_uri
@@ -195,20 +199,29 @@ def extract_raw_lai_timeseries(
                         product_uri=new_product_uri
                     )
                     # get a "new" scene
-                    new_scene = RasterCollection(
-                        band_constructor=Band,
-                        band_name='lai',
-                        values=new_vals,
-                        geo_info=s2_traits['lai'].geo_info,
-                        scene_properties=new_scene_properties
-                    )
+                    for idx, trait in enumerate(traits):
+                        if idx == 0:
+                            new_scene = RasterCollection(
+                                band_constructor=Band,
+                                band_name=trait,
+                                values=new_vals_traits[trait],
+                                geo_info=s2_traits[trait].geo_info,
+                                scene_properties=new_scene_properties
+                            )
+                        else:
+                            new_scene.add_band(
+                                band_constructor=Band,
+                                band_name=trait,
+                                values=new_vals_traits[trait],
+                                geo_info=s2_traits[trait].geo_info
+                            )
                     # delete the "old scene" from the SceneCollection
                     del scoll[scoll.timestamps[-1]]
                     # and add the update scene
                     scoll.add_scene(new_scene)
 
             # make sure the scene are sorted chronologically
-            scoll.sort('asc')
+            scoll = scoll.sort('asc')
             # continue if no scenes were found
             if scoll.empty:
                 logger.warn(
@@ -237,7 +250,7 @@ def extract_raw_lai_timeseries(
             out_dir_parcel.mkdir(exist_ok=True)
 
             # save "raw" LAI values as pickle
-            fname_raw_lai = out_dir_parcel.joinpath('raw_lai_values.pkl')
+            fname_raw_lai = out_dir_parcel.joinpath('raw_trait_values.pkl')
             with open(fname_raw_lai, 'wb+') as dst:
                 dst.write(scoll.to_pickle())
 
@@ -246,14 +259,15 @@ def extract_raw_lai_timeseries(
             # we use xarray as an intermediate to convert it to a pandas
             # DataFrame
             xarr = scoll.to_xarray()
-            df = xarr.to_dataframe(name='lai').reset_index()
-            # drop nan's (these are the pixels outside the parcel)
-            df.dropna(inplace=True)
-            # drop the band name column since it is redundant
-            df.drop('band', axis=1, inplace=True)
-            # save the DataFrame as CSV file
-            fname_csv = out_dir_parcel.joinpath('raw_lai_values.csv')
-            df.to_csv(fname_csv, index=False)
+            for trait in traits:
+                df = xarr.to_dataframe(name=trait).reset_index()
+                # drop nan's (these are the pixels outside the parcel)
+                df.dropna(inplace=True)
+                # drop the band name column since it is redundant
+                df.drop('band', axis=1, inplace=True)
+                # save the DataFrame as CSV file
+                fname_csv = out_dir_parcel.joinpath(f'raw_{trait}_values.csv')
+                df.to_csv(fname_csv, index=False)
 
             # plot data LAI as a map
             f = scoll.plot(
@@ -278,7 +292,8 @@ def extract_raw_lai_timeseries(
             plt.close(f)
 
             logger.info(
-                f'Prepared LAI data for parcel {parcel_name} at {site_name}')
+                f'Prepared LAI data for parcel {parcel_name} at {site_name}'
+                f' ({relevant_phase})')
 
 
 if __name__ == '__main__':
@@ -286,15 +301,19 @@ if __name__ == '__main__':
     test_sites_dir = Path('./data/Test_Sites')
     s2_trait_dir = Path(
         '/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')  # noqa: E501
-    relevant_phase = 'stemelongation-endofheading'
+    relevant_phases = [
+        'germination-endoftillering',
+        'stemelongation-endofheading',
+        'flowering-fruitdevelopment-plantdead']
     meteo_dir = Path('./data/Meteo')
     out_dir = Path('./results/test_sites_pixel_ts')
     out_dir.mkdir(exist_ok=True)
 
-    extract_raw_lai_timeseries(
-        test_sites_dir=test_sites_dir,
-        s2_trait_dir=s2_trait_dir,
-        relevant_phase=relevant_phase,
-        meteo_dir=meteo_dir,
-        out_dir=out_dir
-    )
+    for relevant_phase in relevant_phases:
+        extract_raw_lai_timeseries(
+            test_sites_dir=test_sites_dir,
+            s2_trait_dir=s2_trait_dir,
+            relevant_phase=relevant_phase,
+            meteo_dir=meteo_dir,
+            out_dir=out_dir
+        )
