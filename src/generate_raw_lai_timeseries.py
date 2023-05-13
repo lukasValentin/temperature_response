@@ -265,6 +265,7 @@ def extract_raw_lai_timeseries(
                 df.dropna(inplace=True)
                 # drop the band name column since it is redundant
                 df.drop('band', axis=1, inplace=True)
+                df['pheno_phase'] = relevant_phase
                 # save the DataFrame as CSV file
                 fname_csv = out_dir_parcel.joinpath(f'raw_{trait}_values.csv')
                 df.to_csv(fname_csv, index=False)
@@ -282,6 +283,8 @@ def extract_raw_lai_timeseries(
             meteo_site_parcel.to_csv(out_dir_parcel.joinpath(
                 'hourly_mean_temperature.csv'), index=False)
             f, ax = plt.subplots(figsize=(8, 5))
+            # TODO: fix bug when there is a '-' in the meteo data
+            # (happened in the last phase, so not too urgent to fix)
             ax.plot(
                 meteo_site_parcel.time, meteo_site_parcel['T_mean'].astype(
                     float))
