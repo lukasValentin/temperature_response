@@ -15,8 +15,9 @@ source(paste0(path_script_base,"/functions/FUN_dose_response_fitting.R"))
 # constants
 base_path_data <- "O:/Projects/KP0030_ftschurr/GIT_repos/scripts_paper_3/results/dose_reponse_in-situ"
 
+granularity = "daily"
 
-combined_measurement_list <- readRDS(paste0(base_path_data,"/output/LAI_hourly_Bramenwies_MNI_Rur.rds"))
+combined_measurement_list <- readRDS(paste0(base_path_data,"/output/LAI_",granularity,"_Bramenwies_MNI_Rur.rds"))
 
 location_id = "CH_Bramenwies"
 response_curve_types <- c("non_linear", "asymptotic","WangEngels")
@@ -60,7 +61,6 @@ env <- env %>%
 # clean and combine data
 ################################################################################
 variable = "delta_LAI_smooth"
-granularity = "hourly"
 # variables <- c("delta_LAI_smooth", "delta_LAI")
 env_variable = "T_mean"
 # for(variable in variables){

@@ -14,7 +14,7 @@ source(paste0(path_script_base,"/functions/FUN_dose_response_fitting.R"))
 
 # constants
 base_path_data <- "O:/Projects/KP0030_ftschurr/GIT_repos/scripts_paper_3/results/dose_reponse_in-situ"
-
+granularity = "daily"
 
 ################################################################################
 
@@ -97,6 +97,7 @@ if(granularity == "daily"){
   
   dates <- unique(as.Date(env$timestamp))
   tas <- aggregate2day(time_vect = env$timestamp,data_vect = env[[env_variable]], aggregator = "mean")
+  env <- data.frame(timestamp = dates, "T_mean"= tas)
   
 }
 
@@ -177,6 +178,14 @@ for(f in Meteo_files){
 Meteo_MNI_df <- do.call("rbind", Meteo_MNI)
 Meteo_MNI_df$timestamp <- as.POSIXct(Meteo_MNI_df$time)
 
+if(granularity == "daily"){
+  
+  dates <- unique(as.Date(Meteo_MNI_df$timestamp))
+  tas <- aggregate2day(time_vect = Meteo_MNI_df$timestamp,data_vect = Meteo_MNI_df[[env_variable]], aggregator = "mean")
+  Meteo_MNI_df <- data.frame(timestamp = dates, "T_mean"= tas)
+  
+}
+
 variable <-"delta_LAI_smooth"
 env_variable = "T_mean"
 MNI_measurement_list <- combined_data_cleaning_function(LAI_MNI_df, Meteo_MNI_df, variable,env_variable,data_cleaning="no_negative_values")
@@ -250,6 +259,14 @@ Meteo_Rur_df <- do.call("rbind", Meteo_Rur)
 Meteo_Rur_df$timestamp <- as.POSIXct(Meteo_Rur_df$time)
 Meteo_Rur_df <- Meteo_Rur_df[order(Meteo_Rur_df$timestamp),]
 
+if(granularity == "daily"){
+  
+  dates <- unique(as.Date(Meteo_Rur_df$timestamp))
+  tas <- aggregate2day(time_vect = Meteo_Rur_df$timestamp,data_vect = Meteo_Rur_df[[env_variable]], aggregator = "mean")
+  Meteo_Rur_df <- data.frame(timestamp = dates, "T_mean"= tas)
+  
+}
+
 variable <-"delta_LAI_smooth"
 env_variable = "T_mean"
 Rur_measurement_list <- combined_data_cleaning_function(LAI_Rur_df, Meteo_Rur_df, variable,env_variable,data_cleaning="no_negative_values")
@@ -270,7 +287,7 @@ for(i in names(Rur_measurement_list)){
 }
 
 
-# saveRDS(all_locations, "P:/Evaluation/Projects/KP0030_ftschurr/GIT_repos/scripts_paper_3/results/dose_reponse_in-situ/output/LAI_hourly_Bramenwies_MNI_Rur.rds")
+saveRDS(all_locations, paste0("P:/Evaluation/Projects/KP0030_ftschurr/GIT_repos/scripts_paper_3/results/dose_reponse_in-situ/output/LAI_",granularity,"_Bramenwies_MNI_Rur.rds"))
 
 
 
