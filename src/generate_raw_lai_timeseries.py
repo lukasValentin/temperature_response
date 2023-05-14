@@ -268,6 +268,7 @@ def extract_raw_lai_timeseries(
             xarr = scoll.to_xarray()
             for trait in traits:
                 df = xarr.to_dataframe(name=trait).reset_index()
+                df = df[df.band == trait].copy()
                 # drop nan's (these are the pixels outside the parcel)
                 df.dropna(inplace=True)
                 # drop the band name column since it is redundant
