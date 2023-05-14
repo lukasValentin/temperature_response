@@ -94,7 +94,7 @@ def extract_raw_lai_timeseries(
             s2_obs_parcel = s2_obs_parcel[
                 s2_obs_parcel.has_parcel_subfolder].copy()
             if s2_obs_parcel.empty:
-                logger.warn(
+                logger.warning(
                     f'No data found for parcel {parcel_name} at {site_name}')
 
             # drop duplicates based on the acquisition time. These might
@@ -228,6 +228,16 @@ def extract_raw_lai_timeseries(
                     f'No scenes found for parcel {parcel_name} at {site_name}')
                 continue
 
+            min_time = pd.to_datetime(scoll.timestamps[0].split('+')[0])
+            max_time = pd.to_datetime(scoll.timestamps[-1].split('+')[0])
+            out_dir_parcel = out_dir.joinpath(
+                f'parcel_{parcel_name}_{min_time.date()}-{max_time.date()}')
+            if out_dir_parcel.exists():
+                logger.info(
+                    f'Parcel {parcel_name} {relevant_phase} already processed')
+                continue
+            out_dir_parcel.mkdir()
+
             # extract the meteorological data (hourly)
             fpath_meteo_site = meteo_dir.joinpath(
                 f'{site_name}_Meteo_hourly.csv')
@@ -237,25 +247,20 @@ def extract_raw_lai_timeseries(
             meteo_site.index = meteo_site.time
             # we only need to have meteorological data for the S2 observations
             # selected
-            min_time = pd.to_datetime(scoll.timestamps[0].split('+')[0])
-            max_time = pd.to_datetime(scoll.timestamps[-1].split('+')[0])
             meteo_site_parcel = meteo_site[
                 min_time.date():max_time.date()].copy()[['time', 'T_mean']]
             meteo_site_parcel.index = [
                 x for x in range(meteo_site_parcel.shape[0])]
             # convert T_mean to float in case it is a string and replace
-            # '-0' with nan
+            # '-' with '-999' and then cast it to nan
             if meteo_site_parcel.T_mean.dtype == object:
                 meteo_site_parcel.T_mean = \
                     meteo_site_parcel.T_mean.str.replace(
-                        '-', '')
+                        '-', '-999')
             meteo_site_parcel.T_mean = meteo_site_parcel.T_mean.astype(float)
+            meteo_site_parcel.T_mean.replace(-999, np.nan, inplace=True)
 
             # save data to output directory
-            out_dir_parcel = out_dir.joinpath(
-                f'parcel_{parcel_name}_{min_time.date()}-{max_time.date()}')
-            out_dir_parcel.mkdir(exist_ok=True)
-
             # save "raw" LAI values as pickle
             fname_raw_lai = out_dir_parcel.joinpath('raw_trait_values.pkl')
             with open(fname_raw_lai, 'wb+') as dst:
@@ -291,8 +296,6 @@ def extract_raw_lai_timeseries(
             meteo_site_parcel.to_csv(out_dir_parcel.joinpath(
                 'hourly_mean_temperature.csv'), index=False)
             f, ax = plt.subplots(figsize=(8, 5))
-            # TODO: fix bug when there is a '-' in the meteo data
-            # (happened in the last phase, so not too urgent to fix)
             ax.plot(
                 meteo_site_parcel.time, meteo_site_parcel['T_mean'].astype(
                     float))
