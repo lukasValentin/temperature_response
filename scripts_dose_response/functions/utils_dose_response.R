@@ -17,7 +17,6 @@ sorting_env_to_list <- function(one_measurement_unit, variable, df_env, env_vari
   #'
   require(dplyr)
   measurements_list <- list()
-
   for(measure in 2:length(one_measurement_unit[[variable]])){
     start_date <- one_measurement_unit$timestamp[(measure-1)]
     end_date <-  one_measurement_unit$timestamp[measure]
@@ -25,12 +24,15 @@ sorting_env_to_list <- function(one_measurement_unit, variable, df_env, env_vari
       filter(timestamp <  end_date)%>%
       filter(timestamp > start_date)
     if(length(df_env_subs[[env_variable]])== 0){
-      browser()
+      # next
+      measurements_list[[as.character(one_measurement_unit[[variable]][measure])]] <- NULL
+    }else{
+      measurements_list[[as.character(one_measurement_unit[[variable]][measure])]] <- df_env_subs[[env_variable]]
     }
-    measurements_list[[as.character(one_measurement_unit[[variable]][measure])]] <- df_env_subs[[env_variable]]
     
   }
   
+      # browser()
   return(measurements_list)
   
 }
@@ -48,7 +50,6 @@ combined_data_cleaning_function <- function(one_measurement_unit,
   #'@param env_variable env variable (e.g. tas_2m)
   #'@param data_cleaining options how data should be cleaned
   require(dplyr)
-
   # write all values into a list
   measurement_list <- sorting_env_to_list(one_measurement_unit, variable, df_env, env_variable)
   

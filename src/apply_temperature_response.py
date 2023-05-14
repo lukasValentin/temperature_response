@@ -96,7 +96,7 @@ def apply_temperature_response(parcel_lai_dir: Path,
     """
     """
     # read in dose response paramters
-    path_paramters = os.path.join(dose_response_parameters,response_curve_type,f'{response_curve_type}_variable_delta_LAI_smooth_parameter_T_mean_location_CH_Bramenwies.csv')
+    path_paramters = os.path.join(dose_response_parameters,response_curve_type,f'{response_curve_type}_granularity_hourly_parameter_T_mean.csv')
     # dose_response_parameters.glob('*')
     # path_paramters = dose_response_parameters.joinpath(response_curve_type,f'{response_curve_type}_variable_delta_LAI_smooth_parameter_T_mean_location_CH_Bramenwies.csv')
 
@@ -142,6 +142,7 @@ def apply_temperature_response(parcel_lai_dir: Path,
 
         # outlier selection?
         # scaling of interpolation?
+        # temperature timing --> last day is cut of --> round to day?
 
         # import matplotlib.pyplot as plt
         #
