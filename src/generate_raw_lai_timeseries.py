@@ -243,6 +243,13 @@ def extract_raw_lai_timeseries(
                 min_time.date():max_time.date()].copy()[['time', 'T_mean']]
             meteo_site_parcel.index = [
                 x for x in range(meteo_site_parcel.shape[0])]
+            # convert T_mean to float in case it is a string and replace
+            # '-0' with nan
+            if meteo_site_parcel.T_mean.dtype == object:
+                meteo_site_parcel.T_mean = \
+                    meteo_site_parcel.T_mean.str.replace(
+                        '-', '')
+            meteo_site_parcel.T_mean = meteo_site_parcel.T_mean.astype(float)
 
             # save data to output directory
             out_dir_parcel = out_dir.joinpath(
