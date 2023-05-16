@@ -1,23 +1,28 @@
 '''
 Created on Apr 21, 2023
 
-@author: graflu
+@author: Flavian Tschurr and Lukas Valentin Graf
 '''
 
 import pandas as pd
 import numpy as np
 
-import os
-native_os_path_join = os.path.join
-def modified_join(*args, **kwargs):
-    return native_os_path_join(*args, **kwargs).replace('\\', '/')
-os.path.join = modified_join
-
-import datetime
 from pathlib import Path
+from temperature_response_uncertainty import add_noise_to_temperature
+
+
+# set seed to make results reproducible
+np.random.seed(42)
+
+# ensemble size for meteo data
+n_sim = 100
+
+# noise level for temperature data
+noise_level = 2  # in percent
+
 
 class Response:
-    def __init__(self, response_curve_type,response_curve_parameters):
+    def __init__(self, response_curve_type, response_curve_parameters):
         self.response_cruve_type = response_curve_type
         self.params = response_curve_parameters
 
@@ -42,9 +47,12 @@ class Response:
 
         Args:
         env_variate: input variable
-        Asym: a numeric parameter representing the horizontal asymptote on the right side (very large values of input).
-        lrc: a numeric parameter representing the natural logarithm of the rate constant.
-        c0: a numeric parameter representing the env_variate for which the response is zero.
+        Asym: a numeric parameter representing the horizontal asymptote on
+        the right side (very large values of input).
+        lrc: a numeric parameter representing the natural logarithm of the
+        rate constant.
+        c0: a numeric parameter representing the env_variate for which the
+        response is zero.
 
         Returns:
         A numpy array containing the asymptotic response values.
@@ -54,7 +62,7 @@ class Response:
         c0 = self.params.get('c0_value', 0)
 
         y = Asym * (1. - np.exp(-np.exp(lrc) * (env_variate - c0)))
-        y = np.where(y > 0., y, 0.) # no negative growth
+        y = np.where(y > 0., y, 0.)  # no negative growth
         return y
 
     def wang_engels_response(self, env_variate):
@@ -74,7 +82,9 @@ class Response:
         alpha = np.log(2.) / np.log((xmax - xmin) / (xopt - xmin))
 
         if xmin <= env_variate <= xmax:
-            y = (2. * (env_variate - xmin) ** alpha * (xopt - xmin) ** alpha - (env_variate - xmin) ** (2. * alpha)) / \
+            y = (2. * (env_variate - xmin) ** alpha *
+                 (xopt - xmin) ** alpha - (env_variate - xmin) **
+                 (2. * alpha)) / \
                 ((xopt - xmin) ** (2. * alpha))
         else:
             y = 0
@@ -82,65 +92,153 @@ class Response:
         return y
 
     def get_response(self, env_variates):
-        response_fun = getattr(Response, f'{self.response_cruve_type}_response')
+        response_fun = getattr(
+            Response, f'{self.response_cruve_type}_response')
         response = []
         for env_variate in env_variates:
             response.append(response_fun(self, env_variate))
         return response
 
 
-def apply_temperature_response(parcel_lai_dir: Path,
-                               dose_response_parameters: Path,
-                                response_curve_type,
-                               covariate_granularity):
+def prepare_lai_ts(lai_pixel_ts: pd.Series) -> pd.Series:
+    """
+    Prepare LAI time series for the temperature response function.
+
+    Parameters
+    ----------
+    lai_pixel_ts : pd.Series
+        LAI time series.
+    return : pd.Series
+        Prepared LAI time series.
+    """
+    lai_pixel_ts.sort_values(by='time', inplace=True)
+    lai_pixel_ts.index = [x for x in range(len(lai_pixel_ts))]
+
+    # apply a simple outlier filtering
+    # values smaller than one standard deviation are removed
+    # we look in negative direction, only
+    # the exception is the first value
+    lai_values = lai_pixel_ts['lai'].values.copy()
+    mean, std = np.mean(lai_values), np.std(lai_values)
+    lai_values[1:] = np.where(
+        lai_values[1:] < mean - std,
+        np.nan,
+        lai_values[1:]
+    )
+    # get indices of nan values
+    nan_indices = np.argwhere(np.isnan(lai_values)).flatten()
+    # remove nan values from lai_pixel_ts
+    lai_pixel_ts = lai_pixel_ts[
+        ~lai_pixel_ts.index.isin(nan_indices)].copy()
+
+    return lai_pixel_ts
+
+
+def apply_temperature_response(
+        parcel_lai_dir: Path,
+        dose_response_parameters: Path,
+        response_curve_type,
+        covariate_granularity):
     """
     """
     # read in dose response paramters
-    path_paramters = os.path.join(dose_response_parameters,response_curve_type,f'{response_curve_type}_granularity_hourly_parameter_T_mean.csv')
-    # dose_response_parameters.glob('*')
-    # path_paramters = dose_response_parameters.joinpath(response_curve_type,f'{response_curve_type}_variable_delta_LAI_smooth_parameter_T_mean_location_CH_Bramenwies.csv')
+    path_paramters = Path.joinpath(
+        dose_response_parameters,
+        response_curve_type,
+        f'{response_curve_type}_granularity_{covariate_granularity}' +
+        '_parameter_T_mean.csv')
 
     params = pd.read_csv(path_paramters)
     params = dict(zip(params['parameter_name'], params['parameter_value']))
+
     # loop over parcels and read the data
     for parcel_dir in parcel_lai_dir.glob('*'):
+
+        # make an output dir
+        output_dir = parcel_dir.joinpath(response_curve_type)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
         # leaf area index data
         fpath_lai = parcel_dir.joinpath('raw_lai_values.csv')
         lai = pd.read_csv(fpath_lai)
-        lai['coords_combined'] = lai['x'].astype(str).str.cat(lai['y'].astype(str),sep="_")
-        lai['time'] = pd.to_datetime(lai['time'], utc=True).dt.floor('H')
+        lai['time'] = pd.to_datetime(
+            lai['time'], format='%Y-%m-%d %H:%M:%S', utc=True).dt.floor('H')
 
         # meteorological data
         fpath_meteo = parcel_dir.joinpath('hourly_mean_temperature.csv')
         meteo = pd.read_csv(fpath_meteo)
         # ensure timestamp format
-        meteo['time'] = pd.to_datetime(meteo['time'], utc=True).dt.floor('H')
+        meteo['time'] = pd.to_datetime(
+            meteo['time'], utc=True).dt.floor('H')
         # sort
         meteo = meteo.sort_values(by='time')
 
-        # calculate temperature response and write into the meteo df
-        Response_calculator = Response(response_curve_type = response_curve_type,
-                                       response_curve_parameters = params)
-        meteo['temp_response'] = Response_calculator.get_response(meteo['T_mean'])
-
+        # calculate temperature response and write into
+        # the meteo df
+        Response_calculator = Response(
+            response_curve_type=response_curve_type,
+            response_curve_parameters=params)
 
         # loop over pixels
-        for coords in lai['coords_combined'].unique():
-            onePixel = lai[lai['coords_combined'] == coords]
-            onePixel = onePixel.sort_values(by='time')
-            # merge meteo df
-            meteo_pixel = pd.merge(meteo, onePixel, on='time', how='left')
-            # calculate cumulative response between two satelite measurements
-            measurement_index = meteo_pixel['lai'].notna()
-            measurement_index = meteo_pixel[measurement_index].index.tolist()
-            meteo_pixel['interpolation'] = pd.Series(dtype=float)
-            #calculate cumulative doiseresponse between two measurement timepoints
-            if(len(measurement_index) <= 1):
-                continue
-            for i in range(len(measurement_index)-1):
-                meteo_pixel.loc[measurement_index[i]:measurement_index[(i+1)], 'interpolation'] = np.cumsum(meteo_pixel.loc[measurement_index[i]:measurement_index[(i+1)], 'temp_response'])
+        temp_response_results = []
+        for pixel_coords, lai_pixel_ts in lai.groupby(['y', 'x']):
 
-        # outlier selection?
+            lai_pixel_ts = prepare_lai_ts(lai_pixel_ts)
+
+            # loop over meteo data to run ensembles of temperature response
+            # required for the ensemble Kalman filter
+            for sim in range(n_sim):
+
+                _meteo = meteo.copy()
+                _meteo['T_mean'] = add_noise_to_temperature(
+                    _meteo['T_mean'].values, noise_level=noise_level)
+                _meteo['temp_response'] = \
+                    Response_calculator.get_response(_meteo['T_mean'])
+                meteo_pixel = pd.merge(
+                    _meteo, lai_pixel_ts, on='time', how='left')
+
+                # plot the cumulative response
+                # import matplotlib.pyplot as plt
+                # f, ax = plt.subplots()
+                # ax2 = ax.twinx()
+                # ax.plot(meteo_pixel['time'],
+                #         meteo_pixel['T_mean'],
+                #         color='blue')
+                # ax2.plot(meteo_pixel['time'],
+                #          meteo_pixel['temp_response'].cumsum(),
+                #          color='red')
+                # ax2.set_ylabel('Cumulative Response')
+                # ax.set_ylabel('Hourly Air Temperature [°C]')
+                # ax.set_xlabel('Time')
+                # # rotate the x labels
+                # plt.setp(ax.get_xticklabels(), rotation=45)
+                # f.savefig(
+                #     Path('analysis/figures/cumulative_response_example.png'),
+                #     dpi=300, bbox_inches='tight'
+                # )
+                # plt.show()
+
+                # calculate cumulative response between two satelite
+                # measurements
+                measurement_index = meteo_pixel['lai'].notna()
+                measurement_index = meteo_pixel[
+                    measurement_index].index.tolist()
+                meteo_pixel['interpolation'] = pd.Series(dtype=float)
+
+                # calculate cumulative dose response between two
+                # measurement timepoints
+                if (len(measurement_index) <= 1):
+                    continue
+                for i in range(len(measurement_index)-1):
+                    meteo_pixel.loc[
+                        measurement_index[i]:measurement_index[(i+1)],
+                        'interpolation'] = \
+                            np.cumsum(meteo_pixel.loc[
+                                measurement_index[i]: measurement_index[(i+1)],
+                                'temp_response'])
+
+
+        # outlier selection? -> yes
         # scaling of interpolation?
         # temperature timing --> last day is cut of --> round to day?
 
@@ -161,11 +259,6 @@ def apply_temperature_response(parcel_lai_dir: Path,
         # # Show the plot
         # plt.show()
 
-
-
-
-
-
         # # loop over single pixels
         # for pixel_coords, lai_pixel_ts in lai.groupby(['y', 'x']):
         #     # pixel_coords are the coordinates of the pixel
@@ -173,22 +266,23 @@ def apply_temperature_response(parcel_lai_dir: Path,
         #     # the actual lai data. The meteo data can be joined on the time column
         #     lai_pixel_ts
 
+
 if __name__ == '__main__':
 
     # directory with parcel LAI time series
-    parcel_lai_dir = Path('./results/test_sites_pixel_ts')
+    parcel_lai_dir = Path('results/validation_sites')
 
-    dose_response_parameters = os.path.abspath('./results/dose_reponse_in-situ/output/parameter_model')
+    dose_response_parameters = Path(
+        'results/dose_reponse_in-situ/output/parameter_model')
     # dose_response_parameters = Path('./results/dose_reponse_in-situ/output/parameter_model').resolve()
 
     response_curve_type = "non_linear"
     # response_curve_type = "asymptotic"
 
-
     covariate_granularity = "hourly"
 
-
-    apply_temperature_response(parcel_lai_dir=parcel_lai_dir,
-                               dose_response_parameters = dose_response_parameters,
-                               response_curve_type = response_curve_type,
-                               covariate_granularity = covariate_granularity)
+    apply_temperature_response(
+        parcel_lai_dir=parcel_lai_dir,
+        dose_response_parameters=dose_response_parameters,
+        response_curve_type=response_curve_type,
+        covariate_granularity=covariate_granularity)
