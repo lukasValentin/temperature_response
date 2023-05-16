@@ -185,57 +185,49 @@ def apply_temperature_response(
 
             lai_pixel_ts = prepare_lai_ts(lai_pixel_ts)
 
-            # loop over meteo data to run ensembles of temperature response
-            # required for the ensemble Kalman filter
-            for sim in range(n_sim):
+            # calculate cumulative response between two satelite
+            # measurements
+            meteo_pixel = pd.merge(meteo, lai_pixel_ts, on='time', how='left')
+            measurement_index = meteo_pixel['lai'].notna()
+            measurement_index = meteo_pixel[
+                measurement_index].index.tolist()
+            meteo_pixel['interpolation'] = pd.Series(dtype=float)
 
-                _meteo = meteo.copy()
-                _meteo['T_mean'] = add_noise_to_temperature(
-                    _meteo['T_mean'].values, noise_level=noise_level)
-                _meteo['temp_response'] = \
-                    Response_calculator.get_response(_meteo['T_mean'])
-                meteo_pixel = pd.merge(
-                    _meteo, lai_pixel_ts, on='time', how='left')
+            if (len(measurement_index) <= 1):
+                continue
 
-                # plot the cumulative response
-                # import matplotlib.pyplot as plt
-                # f, ax = plt.subplots()
-                # ax2 = ax.twinx()
-                # ax.plot(meteo_pixel['time'],
-                #         meteo_pixel['T_mean'],
-                #         color='blue')
-                # ax2.plot(meteo_pixel['time'],
-                #          meteo_pixel['temp_response'].cumsum(),
-                #          color='red')
-                # ax2.set_ylabel('Cumulative Response')
-                # ax.set_ylabel('Hourly Air Temperature [°C]')
-                # ax.set_xlabel('Time')
-                # # rotate the x labels
-                # plt.setp(ax.get_xticklabels(), rotation=45)
-                # f.savefig(
-                #     Path('analysis/figures/cumulative_response_example.png'),
-                #     dpi=300, bbox_inches='tight'
-                # )
-                # plt.show()
+            # calculate cumulative dose response between two
+            # consecutive measurement timepoints
 
-                # calculate cumulative response between two satelite
-                # measurements
-                measurement_index = meteo_pixel['lai'].notna()
-                measurement_index = meteo_pixel[
-                    measurement_index].index.tolist()
-                meteo_pixel['interpolation'] = pd.Series(dtype=float)
+            for i in range(len(measurement_index)-1):
+                meteo_time_window = meteo_pixel.loc[
+                    measurement_index[i]:measurement_index[(i+1)]].copy()
+       
+                # meteo_pixel.loc[
+                #     measurement_index[i]:measurement_index[(i+1)],
+                #     'interpolation'] = \
+                #         np.cumsum(meteo_pixel.loc[
+                #             measurement_index[i]: measurement_index[(i+1)],
+                #             'temp_response'])
 
-                # calculate cumulative dose response between two
-                # measurement timepoints
-                if (len(measurement_index) <= 1):
-                    continue
-                for i in range(len(measurement_index)-1):
-                    meteo_pixel.loc[
-                        measurement_index[i]:measurement_index[(i+1)],
-                        'interpolation'] = \
-                            np.cumsum(meteo_pixel.loc[
-                                measurement_index[i]: measurement_index[(i+1)],
-                                'temp_response'])
+                # loop over meteo data to run ensembles of temperature response
+                # required for the ensemble Kalman filter
+                meteo_response_cumsum = []
+                for sim in range(n_sim):
+                    _meteo = meteo_time_window.copy()
+                    # add noise to temperature
+                    _meteo['T_mean'] = add_noise_to_temperature(
+                        _meteo['T_mean'].values, noise_level=noise_level)
+                    _meteo['temp_response'] = \
+                        Response_calculator.get_response(_meteo['T_mean'])
+                    meteo_response_cumsum.append(
+                        np.cumsum(_meteo['temp_response']).values[-1])
+
+                # get the uncertainty in the temperature response
+                # due to the uncertainty in the temperature
+                response_cumsum_unc = np.std(meteo_response_cumsum)
+
+                    
 
 
         # outlier selection? -> yes
