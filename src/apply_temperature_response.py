@@ -4,21 +4,29 @@ Created on Apr 21, 2023
 @author: Flavian Tschurr and Lukas Valentin Graf
 '''
 
+import geopandas as gpd
 import pandas as pd
 import numpy as np
 
+from eodal.config import get_settings
+from eodal.core.band import Band, GeoInfo
+from eodal.core.raster import RasterCollection, SceneProperties
+from eodal.core.scene import SceneCollection
 from pathlib import Path
+from typing import List
+
 from temperature_response_uncertainty import add_noise_to_temperature
 
+
+logger = get_settings().logger
 
 # set seed to make results reproducible
 np.random.seed(42)
 
-# ensemble size for meteo data
-n_sim = 100
-
 # noise level for temperature data
-noise_level = 2  # in percent
+noise_level = 5  # in percent
+# uncertainty in LAI data (relative)
+lai_uncertainty = 5  # in percent
 
 
 class Response:
@@ -134,19 +142,170 @@ def prepare_lai_ts(lai_pixel_ts: pd.Series) -> pd.Series:
     return lai_pixel_ts
 
 
+def ensemble_kalman_filtering(
+        measurement_index: List[int],
+        meteo_pixel: pd.DataFrame,
+        n_sim: int,
+        Response_calculator: Response
+) -> pd.DataFrame:
+    """
+    Ensemble Kalman filtering for assimilating satellite-derived
+    LAI values into a temperature response function.
+
+    Parameters
+    ----------
+    measurement_index : List[int]
+        Indices of the LAI time series where measurements are available.
+    meteo_pixel : pd.DataFrame
+        Meteo data for the pixel with joined LAI values from satellite
+        observations.
+    n_sim : int
+        Number of simulations.
+    Response_calculatior : Response
+        Response calculator.
+    return : pd.DataFrame
+        assimilated LAI time series.
+    """
+    model_sims_between_points = []
+    lai_value_sim_start = None
+    Aa = None
+    for i in range(len(measurement_index)-1):
+        meteo_time_window = meteo_pixel.loc[
+            measurement_index[i]:measurement_index[(i+1)]].copy()
+
+        # set starting LAI value for simulation
+        # for the first observation this will be the measured value
+        if i == 0:
+            lai_value_sim_start = np.zeros((1, n_sim), dtype=float)
+        # for the other observations this will be the assimilated
+        # LAI value
+        else:
+            lai_value_sim_start = Aa[0, :]
+
+        # loop over meteo data to run ensembles of temperature response
+        # required for the ensemble Kalman filter
+        lai_modelled = []
+        model_sim = []
+        for sim in range(n_sim):
+            _meteo = meteo_time_window.copy()
+            # add noise to temperature
+            _meteo['T_mean'] = add_noise_to_temperature(
+                _meteo['T_mean'].values, noise_level=noise_level)
+            _meteo['temp_response'] = \
+                Response_calculator.get_response(_meteo['T_mean'])
+            # set response to lai_value_sim_start
+            _meteo['temp_response_cumsum'] = \
+                _meteo['temp_response'].cumsum()
+            _meteo['temp_response_cumsum'] = \
+                _meteo['temp_response_cumsum'] + \
+                lai_value_sim_start[0, sim]
+            # the cumulative sum of the temperature response at
+            # i+1 is the modelled LAI stage at i+1
+            lai_modelled.append(
+                _meteo['temp_response_cumsum'].values[-1])
+            # zip temperature response and time
+            model_sim_time = dict(
+                zip(_meteo.time, _meteo.temp_response_cumsum))
+            model_sim.append(model_sim_time)
+
+        model_sim_df = pd.DataFrame(model_sim).T
+        model_sim_df.index = meteo_time_window['time']
+        model_sims_between_points.append(model_sim_df)
+
+        # calculate the updates for the next model run
+        # using the ensemble Kalman filter
+
+        # get the model stage A
+        A_df = pd.DataFrame(lai_modelled)
+        A = np.matrix(np.asarray(lai_modelled))  # .T
+        # compute the variance within the ensemble A, P_e
+        P_e = np.matrix(A_df.cov())
+
+        # get the mean and covariance of the satellite observations
+        lai_value = meteo_time_window['lai'].iloc[-1]
+        lai_std = lai_uncertainty * 0.01 * lai_value
+        perturbed_lai = np.random.normal(lai_value, lai_std, (n_sim))
+        D = np.matrix(perturbed_lai)  # .T
+        R_e = np.matrix(pd.DataFrame(perturbed_lai).cov())
+
+        # Here we compute the Kalman gain
+        H = np.identity(1)  # len(obs) in the original code
+        K1 = P_e * (H.T)
+        K2 = (H * P_e) * H.T
+        K = K1 * ((K2 + R_e).I)
+
+        # Here we compute the analysed states that will be used to
+        # reinitialise the model at the next time step
+        Aa = A + K * (D - (H * A))
+
+    model_sims_between_points = pd.concat(
+        model_sims_between_points, axis=0)
+
+    return model_sims_between_points
+
+
+def rescale(val, in_min, in_max, out_min, out_max):
+    return out_min + (val - in_min) * ((out_max - out_min) / (in_max - in_min))
+
+
+def interpolate_lai(
+        measurement_index: List[int],
+        meteo_pixel: pd.DataFrame,
+        Response_calculator: Response
+) -> pd.DataFrame:
+    """
+    Interpolate LAI values between satellite observations.
+    """
+    model_sims_between_points = []
+    # loop over measurement points
+    for i in range(len(measurement_index)-1):
+        meteo_time_window = meteo_pixel.loc[
+            measurement_index[i]:measurement_index[(i+1)]].copy()
+        # calculate the temperature response
+        meteo_time_window['temp_response'] = \
+            Response_calculator.get_response(
+                meteo_time_window['T_mean'])
+        # get cumulative sum of temperature response
+        meteo_time_window['temp_response_cumsum'] = \
+            meteo_time_window['temp_response'].cumsum()
+        # scale values between lai_value_start and lai_value_end
+        in_min = meteo_time_window['temp_response_cumsum'].iloc[0]
+        in_max = meteo_time_window['temp_response_cumsum'].iloc[-1]
+        out_min = meteo_time_window['lai'].iloc[0]
+        out_max = meteo_time_window['lai'].iloc[-1]
+        out_range = out_max - out_min
+        if out_range < 0:
+            continue
+        meteo_time_window['interpolated'] = \
+            meteo_time_window['temp_response_cumsum'].apply(
+                lambda x: rescale(x, in_min, in_max, out_min, out_max))
+        model_sims_between_points.append(meteo_time_window)
+
+    model_sims_between_points = pd.concat(
+        model_sims_between_points, axis=0)
+    return model_sims_between_points
+
+
 def apply_temperature_response(
         parcel_lai_dir: Path,
         dose_response_parameters: Path,
         response_curve_type,
-        covariate_granularity):
+        covariate_granularity,
+        n_sim=50):
     """
     """
     # read in dose response paramters
+    # TODO: change back once bug has been fixed
+    # path_paramters = Path.joinpath(
+    #     dose_response_parameters,
+    #     response_curve_type,
+    #     f'{response_curve_type}_granularity_{covariate_granularity}' +
+    #     '_parameter_T_mean.csv')
     path_paramters = Path.joinpath(
         dose_response_parameters,
         response_curve_type,
-        f'{response_curve_type}_granularity_{covariate_granularity}' +
-        '_parameter_T_mean.csv')
+        f'{response_curve_type}_variable_delta_LAI' +
+        '_parameter_T_mean_location_CH_Bramenwies.csv')
 
     params = pd.read_csv(path_paramters)
     params = dict(zip(params['parameter_name'], params['parameter_value']))
@@ -180,13 +339,12 @@ def apply_temperature_response(
             response_curve_parameters=params)
 
         # loop over pixels
-        temp_response_results = []
+        interpolated_pixel_results = []
         for pixel_coords, lai_pixel_ts in lai.groupby(['y', 'x']):
 
             lai_pixel_ts = prepare_lai_ts(lai_pixel_ts)
 
-            # calculate cumulative response between two satelite
-            # measurements
+            # merge with meteo
             meteo_pixel = pd.merge(meteo, lai_pixel_ts, on='time', how='left')
             measurement_index = meteo_pixel['lai'].notna()
             measurement_index = meteo_pixel[
@@ -198,65 +356,74 @@ def apply_temperature_response(
 
             # calculate cumulative dose response between two
             # consecutive measurement timepoints
+            model_sims_between_points = interpolate_lai(
+                measurement_index=measurement_index,
+                meteo_pixel=meteo_pixel,
+                Response_calculator=Response_calculator)
 
-            for i in range(len(measurement_index)-1):
-                meteo_time_window = meteo_pixel.loc[
-                    measurement_index[i]:measurement_index[(i+1)]].copy()
-       
-                # meteo_pixel.loc[
-                #     measurement_index[i]:measurement_index[(i+1)],
-                #     'interpolation'] = \
-                #         np.cumsum(meteo_pixel.loc[
-                #             measurement_index[i]: measurement_index[(i+1)],
-                #             'temp_response'])
+            lai_interpolated_df = pd.DataFrame({
+                'time': model_sims_between_points['time'],
+                'lai': model_sims_between_points['interpolated'].values,
+                'y': pixel_coords[0],
+                'x': pixel_coords[1]
+            })
+            interpolated_pixel_results.append(lai_interpolated_df)
 
-                # loop over meteo data to run ensembles of temperature response
-                # required for the ensemble Kalman filter
-                meteo_response_cumsum = []
-                for sim in range(n_sim):
-                    _meteo = meteo_time_window.copy()
-                    # add noise to temperature
-                    _meteo['T_mean'] = add_noise_to_temperature(
-                        _meteo['T_mean'].values, noise_level=noise_level)
-                    _meteo['temp_response'] = \
-                        Response_calculator.get_response(_meteo['T_mean'])
-                    meteo_response_cumsum.append(
-                        np.cumsum(_meteo['temp_response']).values[-1])
+        # concatenate the results for all pixels
+        interpolated_pixel_results_parcel = pd.concat(
+            interpolated_pixel_results, ignore_index=True)
+        # correct the coordinates as xarray shifts them to the center
+        # we fix the pixel resolution to 10 meters (S2 resolution)
+        interpolated_pixel_results_parcel['y'] = \
+            interpolated_pixel_results_parcel['y'] - 5  # meters
+        interpolated_pixel_results_parcel['x'] = \
+            interpolated_pixel_results_parcel['x'] + 5  # meters
 
-                # get the uncertainty in the temperature response
-                # due to the uncertainty in the temperature
-                response_cumsum_unc = np.std(meteo_response_cumsum)
+        sc = SceneCollection()
+        for time_stamp in interpolated_pixel_results_parcel.time.unique():
+            # get the data for the current time stamp
+            data = interpolated_pixel_results_parcel[
+                interpolated_pixel_results_parcel.time == time_stamp].copy()
 
-                    
+            # convert to eodal RasterCollection
+            # reconstruct geoinfo
+            geo_info = GeoInfo(
+                epsg=32632,
+                ulx=data.x.min(),
+                uly=data.y.max(),
+                pixres_x=10,
+                pixres_y=-10
+            )
 
+            data_gdf = gpd.GeoDataFrame(
+                data,
+                geometry=gpd.points_from_xy(data.x, data.y),
+                crs=geo_info.epsg
+            )
+            band = Band.from_vector(
+                vector_features=data_gdf,
+                geo_info=geo_info,
+                band_name_src='lai',
+                band_name_dst=str(time_stamp),
+                nodata_dst=np.nan
+            )
+            rc = RasterCollection()
+            rc.add_band(band)
+            rc.scene_properties = SceneProperties(
+                acquisition_time=time_stamp
+            )
+            sc.add_scene(rc)
 
-        # outlier selection? -> yes
-        # scaling of interpolation?
-        # temperature timing --> last day is cut of --> round to day?
+        # save the SceneCollection as pickled object
+        sc = sc.sort()
+        fname_pkl = output_dir.joinpath(
+            f'{covariate_granularity}_lai.pkl')
+        with open(fname_pkl, 'wb') as dst:
+            dst.write(sc.to_pickle())
 
-        # import matplotlib.pyplot as plt
-        #
-        # # Plot the time series
-        # plt.plot(meteo_pixel['time'], meteo_pixel['lai'],marker='o', label='LAI')
-        # plt.plot(meteo_pixel['time'], meteo_pixel['T_mean'], label='T_mean')
-        # plt.plot(meteo_pixel['time'], meteo_pixel['temp_response'], label='Response')
-        # plt.plot(meteo_pixel['time'], meteo_pixel['interpolation'], label='interpolation')
-        #
-        #
-        # # Add legend and axis labels
-        # plt.legend()
-        # plt.xlabel('Time')
-        # plt.ylabel('Values')
-        #
-        # # Show the plot
-        # plt.show()
-
-        # # loop over single pixels
-        # for pixel_coords, lai_pixel_ts in lai.groupby(['y', 'x']):
-        #     # pixel_coords are the coordinates of the pixel
-        #     pixel_coords
-        #     # the actual lai data. The meteo data can be joined on the time column
-        #     lai_pixel_ts
+        logger.info(
+            f'Interpolated {parcel_dir.name} to ' +
+            f'{covariate_granularity} LAI values')
 
 
 if __name__ == '__main__':
@@ -265,10 +432,9 @@ if __name__ == '__main__':
     parcel_lai_dir = Path('results/validation_sites')
 
     dose_response_parameters = Path(
-        'results/dose_reponse_in-situ/output/parameter_model')
-    # dose_response_parameters = Path('./results/dose_reponse_in-situ/output/parameter_model').resolve()
+        'results/dose_reponse_in-situ/output/parameter_model')  # noqa: E501
 
-    response_curve_type = "non_linear"
+    response_curve_type = "non_linear"   # non_linear, wangengels
     # response_curve_type = "asymptotic"
 
     covariate_granularity = "hourly"
