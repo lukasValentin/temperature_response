@@ -248,3 +248,7 @@ scripts_paper_3.code-workspace
 results/dose_reponse_in-situ/CH_Arenenberg/prepare_data.py
 analysis/
 *simulation*
+*.png
+*.pkl
+*sigmoid_model*
+results/validation_sites/farm_Strickhof_2022-04-04-2022-05-27/sigmoid_model/daily_lai.pkl
