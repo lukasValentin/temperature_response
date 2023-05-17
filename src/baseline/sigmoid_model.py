@@ -228,21 +228,8 @@ def loop_pixels(parcel_lai_dir: Path):
             )
             sc.add_scene(rc)
 
-            # plot the current scene
-            f, ax = plt.subplots(figsize=(10, 10))
-            band.plot(
-                vmin=0,
-                vmax=8,
-                colormap='viridis',
-                colorbar_label=r'GLAI [$m^2$ $m^{-2}$]',
-                fontsize=18,
-                ax=ax)
-            f.savefig(
-                output_dir.joinpath(f'{time_stamp.date()}.png'),
-                dpi=300)
-            plt.close(f)
-
         # save the SceneCollection as pickled object
+        sc = sc.sort()
         fname_pkl = output_dir.joinpath('daily_lai.pkl')
         with open(fname_pkl, 'wb') as dst:
             dst.write(sc.to_pickle())
