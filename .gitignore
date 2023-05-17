@@ -251,4 +251,3 @@ analysis/
 *.png
 *.pkl
 *sigmoid_model*
-results/validation_sites/farm_Strickhof_2022-04-04-2022-05-27/sigmoid_model/daily_lai.pkl
