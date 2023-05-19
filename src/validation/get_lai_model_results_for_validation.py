@@ -19,8 +19,15 @@ from typing import List
 logger = get_settings().logger
 
 # define BBCH range for stem elongation
-BBCH_MIN = 30
+# we start already at the late tillering stage to make sure we
+# get the onset of the stem elongation phase right
+BBCH_MIN = 25
 BBCH_MAX = 59
+# tolerance window for BBCH rating in days
+# i.e., we cannot always be sure if we really got the beginning
+# and ending of the stem elongation phase right or we missed
+# a few days due to our sampling frequency
+BBCH_TOLERANCE = 7  # days
 
 
 def get_lai_model_results_for_validation(
@@ -43,42 +50,19 @@ def get_lai_model_results_for_validation(
     """
     # loop over years
     for year in years:
+
         # the in-situ data is stored by year
         insitu_year_dir = insitu_dir.joinpath(f'{year}')
         # read the data into a GeoDataFrame
-        fpath_lai = insitu_year_dir.joinpath('in-situ_glai.gpkg')
-        insitu_lai = gpd.read_file(fpath_lai)
         fpath_bbch = insitu_year_dir.joinpath('in-situ_bbch.gpkg')
-        insitu_bbch = gpd.read_file(fpath_bbch)
+        insitu = gpd.read_file(fpath_bbch)
         # convert date to pd.to_datetime
-        insitu_lai['date'] = pd.to_datetime(insitu_lai['date'])
-        insitu_lai['parcel'] = insitu_lai['parcel'].apply(
-            lambda x: 'Parzelle35' if x == 'Parzelle 35' else x)
-        insitu_bbch['date'] = pd.to_datetime(insitu_bbch['date'])
-        # join LAI and BBCH data on date and parcel
-        insitu = pd.merge(
-            insitu_lai, insitu_bbch,
-            on=['date', 'location', 'parcel', 'point_id'])
+        insitu['date'] = pd.to_datetime(insitu['date'])
+
         # filter for stem elongation phase
         insitu = insitu[
             (insitu['BBCH Rating'] >= BBCH_MIN) &
             (insitu['BBCH Rating'] <= BBCH_MAX)].copy()
-        insitu_bbch = insitu_bbch[
-            (insitu_bbch['BBCH Rating'] >= BBCH_MIN) &
-            (insitu_bbch['BBCH Rating'] <= BBCH_MAX)].copy()
-
-        # convert insitu data to GeoDataFrame
-        insitu = gpd.GeoDataFrame(
-            insitu, geometry=insitu.geometry_x, crs=insitu_bbch.crs)
-        # drop unnecessary columns
-        insitu.drop(columns=['geometry_x', 'geometry_y'], inplace=True)
-        # project to swiss coordinates (LV95)
-        insitu = insitu.to_crs(2056)
-
-        # save the GeoDataFrame to a GeoPackage in the trait_dir directory
-        fpath_gpkg = trait_dir.joinpath(f'{year}_insitu_lai_bbch_se.gpkg')
-        insitu.to_file(fpath_gpkg, driver='GPKG')
-        logger.info(f'Saved in-situ data for stem elongation phase {year}')
 
         # loop over farms in in-situ data
         for farm in insitu['location'].unique():
@@ -99,9 +83,11 @@ def get_lai_model_results_for_validation(
                 test_site_gdf['sowing_year'] == year - 1].copy()
 
             # get the in-situ BBCH data for the farm
-            farm_insitu = insitu_bbch[insitu_bbch['location'] == farm].copy()
-            farm_insitu_min = farm_insitu['date'].min()
-            farm_insitu_max = farm_insitu['date'].max()
+            farm_insitu = insitu[insitu['location'] == farm].copy()
+            farm_insitu_min = farm_insitu['date'].min() - \
+                pd.Timedelta(days=BBCH_TOLERANCE)
+            farm_insitu_max = farm_insitu['date'].max() + \
+                pd.Timedelta(days=BBCH_TOLERANCE)
 
             # loop over scenes in farm
             for scene_dir in farm_dir.glob('*.SAFE'):
@@ -115,6 +101,7 @@ def get_lai_model_results_for_validation(
                 # has been generated already
                 fpath_traits = scene_dir.joinpath(
                     'stemelongation-endofheading_lutinv_traits.tiff')
+
                 if not fpath_traits.exists():
                     continue
 
