@@ -249,6 +249,7 @@ def get_s2_spectra(
         elif scene_month in [9]:
             # there should be no winter wheat growing in September
             continue
+        pheno_phase_selection = pheno_phase_selection + ['all-phases']
 
         # get viewing and illumination angles for PROSAIL run
         angle_dict = {
@@ -339,7 +340,7 @@ if __name__ == '__main__':
         'linearize_lai': False
     }
     # directory with LUT parameters for different phenological macro-stages
-    lut_params_dir = Path('lut_params')
+    lut_params_dir = Path('lut_params')  # Path('src/lut_params')
 
     # target trait(s)
     traits = ['lai', 'ccc']
