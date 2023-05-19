@@ -11,7 +11,7 @@ from eodal.core.scene import SceneCollection
 from pathlib import Path
 
 
-models = ['sigmoid', 'non_linear']
+models = ['non_linear']
 bbch_range = (30, 59)
 black_listed_parcels = ['Bramenwies']
 
@@ -35,6 +35,7 @@ def validate_interpolated_time_series(
     bbch_cols = ['BBCH Rating'] + join_cols
     # join the dataframes on date, location, parcel and point_id
     val_df = lai[lai_cols].merge(bbch[bbch_cols], on=join_cols, how='left')
+    val_df.rename(columns={'lai': 'lai_in-situ'}, inplace=True)
 
     # loop over directories in the model output directory
     for site_dir in model_output_dir.glob('*'):
@@ -68,27 +69,28 @@ def validate_interpolated_time_series(
                     # continue if date is not between min and max date
                     if not (min_date <= date_rounded <= max_date):
                         continue
+
                     # get the interpolated LAI value by timestamp
                     if granularity == 'hourly':
                         scene = scoll[date_rounded.__str__()]
-                        date_str = date_rounded.__str__()
                     elif granularity == 'daily':
                         date_date = date_rounded.date()
                         # get the corresponding date in the scene collection
                         for timestamp in scoll.timestamps:
                             if pd.to_datetime(timestamp).date() == date_date:
                                 scene = scoll[timestamp]
-                                date_str = pd.to_datetime(
-                                    timestamp).date().__str__()
                                 break
+
                     # get the pixel values at the in-situ points
                     pixel_vals = scene.get_pixels(
                         vector_features=site_val_df_date)
                     pixel_vals = pixel_vals.rename(
-                        columns={date_str: 'lai_interpolated'})
+                        columns={'lai': f'lai_{model}'})
                     pixel_vals_list.append(pixel_vals)
 
                 # concatenate the pixel values
+                if len(pixel_vals_list) == 0:
+                    continue
                 pixel_vals_df = pd.concat(pixel_vals_list)
                 pixel_vals_df['model'] = model
                 pixel_vals_df['granularity'] = granularity
@@ -98,21 +100,35 @@ def validate_interpolated_time_series(
                 pixel_vals_df.to_csv(fpath_out, index=False)
 
                 # scatter plot lai vs. interpolated lai
-                f, ax = plt.subplots(figsize=(8, 8))
+                f, ax = plt.subplots(figsize=(16, 8), ncols=2, sharex=True,
+                                     sharey=True)
                 sns.scatterplot(
                     data=pixel_vals_df,
-                    x='lai',
-                    y='lai_interpolated',
-                    hue='BBCH Rating',
-                    ax=ax)
-                ax.set_xlabel('in-situ LAI' + r' [$m^2$ $m^{-2}$]')
-                ax.set_ylabel('S2-derived interpolated LAI' +
-                              r' [$m^2$ $m^{-2}$]')
-                ax.set_title(
-                    f'{site} {model} {granularity}; N={len(pixel_vals_df)}')
-                ax.set_xlim(0, 8)
-                ax.set_ylim(0, 8)
-                ax.plot([0, 8], [0, 8], color='black', linestyle='--')
+                    x='lai_in-situ',
+                    y=f'lai_{model}',
+                    ax=ax[0])
+                sns.scatterplot(
+                    data=pixel_vals_df,
+                    x='lai_in-situ',
+                    y='lai_baseline',
+                    ax=ax[1])
+
+                for idx in range(2):
+                    ax[idx].set_xlabel('in-situ LAI' + r' [$m^2$ $m^{-2}$]')
+                    ax[idx].set_ylabel('S2-derived interpolated LAI' +
+                                       r' [$m^2$ $m^{-2}$]')
+                    ax[idx].set_xlim(0, 8)
+                    ax[idx].set_ylim(0, 8)
+                    ax[idx].plot([0, 8], [0, 8], color='black', linestyle='--')
+                    if idx == 0:
+                        ax[idx].set_title(
+                            f'{site} {model} {granularity}\n' +
+                            f'N={len(pixel_vals_df)}')
+                    else:
+                        ax[idx].set_title(
+                            f'{site} baseline {granularity}\n' +
+                            f'N={len(pixel_vals_df)}')
+
                 plt.tight_layout()
                 f.savefig(
                     model_dir / f'{granularity}_lai_validation.png',
