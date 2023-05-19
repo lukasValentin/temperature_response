@@ -349,7 +349,6 @@ def apply_temperature_response(
             measurement_index = meteo_pixel['lai'].notna()
             measurement_index = meteo_pixel[
                 measurement_index].index.tolist()
-            meteo_pixel['interpolation'] = pd.Series(dtype=float)
 
             if (len(measurement_index) <= 1):
                 continue
@@ -360,6 +359,16 @@ def apply_temperature_response(
                 measurement_index=measurement_index,
                 meteo_pixel=meteo_pixel,
                 Response_calculator=Response_calculator)
+
+            # in a second step, check for "gaps" within the time series
+            # resulting from negative LAI deltas
+            # if there are these gaps, we can also interpolate these
+            # values
+            nans_in_interpolation = \
+                np.argwhere(
+                    np.isnan(model_sims_between_points['interpolated'].values))
+            if len(nans_in_interpolation) > 0:
+                continue
 
             lai_interpolated_df = pd.DataFrame({
                 'time': model_sims_between_points['time'],
