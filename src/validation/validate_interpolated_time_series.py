@@ -11,7 +11,7 @@ from eodal.core.scene import SceneCollection
 from pathlib import Path
 
 
-models = ['non_linear']
+models = ['non_linear', 'sigmoid']
 bbch_range = (30, 59)
 black_listed_parcels = ['Bramenwies']
 
@@ -98,6 +98,10 @@ def validate_interpolated_time_series(
                 # save the pixel values
                 fpath_out = model_dir / f'{granularity}_lai_validation.csv'
                 pixel_vals_df.to_csv(fpath_out, index=False)
+
+                # simple trick if not baseline is available
+                if 'lai_baseline' not in pixel_vals_df.columns:
+                    pixel_vals_df['lai_baseline'] = pixel_vals_df[f'lai_{model}']
 
                 # scatter plot lai vs. interpolated lai
                 f, ax = plt.subplots(figsize=(16, 8), ncols=2, sharex=True,
