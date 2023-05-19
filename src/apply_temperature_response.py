@@ -273,12 +273,22 @@ def interpolate_lai(
         in_max = meteo_time_window['temp_response_cumsum'].iloc[-1]
         out_min = meteo_time_window['lai'].iloc[0]
         out_max = meteo_time_window['lai'].iloc[-1]
+        # our assumption here is that LAI MUST increase between
+        # two observations
         out_range = out_max - out_min
         if out_range < 0:
             continue
         meteo_time_window['interpolated'] = \
             meteo_time_window['temp_response_cumsum'].apply(
                 lambda x: rescale(x, in_min, in_max, out_min, out_max))
+
+        # as baseline, a simple linear interpolation is used
+        meteo_time_window['baseline_interpolation'] = \
+            np.linspace(
+                meteo_time_window['lai'].iloc[0],
+                meteo_time_window['lai'].iloc[-1],
+                len(meteo_time_window))
+
         model_sims_between_points.append(meteo_time_window)
 
     model_sims_between_points = pd.concat(
@@ -360,19 +370,12 @@ def apply_temperature_response(
                 meteo_pixel=meteo_pixel,
                 Response_calculator=Response_calculator)
 
-            # in a second step, check for "gaps" within the time series
-            # resulting from negative LAI deltas
-            # if there are these gaps, we can also interpolate these
-            # values
-            nans_in_interpolation = \
-                np.argwhere(
-                    np.isnan(model_sims_between_points['interpolated'].values))
-            if len(nans_in_interpolation) > 0:
-                continue
-
+            # save results to DataFrame
             lai_interpolated_df = pd.DataFrame({
                 'time': model_sims_between_points['time'],
                 'lai': model_sims_between_points['interpolated'].values,
+                'lai_baseline': model_sims_between_points[
+                    'baseline_interpolation'].values,
                 'y': pixel_coords[0],
                 'x': pixel_coords[1]
             })
@@ -409,15 +412,16 @@ def apply_temperature_response(
                 geometry=gpd.points_from_xy(data.x, data.y),
                 crs=geo_info.epsg
             )
-            band = Band.from_vector(
-                vector_features=data_gdf,
-                geo_info=geo_info,
-                band_name_src='lai',
-                band_name_dst=str(time_stamp),
-                nodata_dst=np.nan
-            )
             rc = RasterCollection()
-            rc.add_band(band)
+            for band_name in ['lai', 'lai_baseline']:
+                band = Band.from_vector(
+                    vector_features=data_gdf,
+                    geo_info=geo_info,
+                    band_name_src=band_name,
+                    band_name_dst=band_name,
+                    nodata_dst=np.nan
+                )
+                rc.add_band(band)
             rc.scene_properties = SceneProperties(
                 acquisition_time=time_stamp
             )
