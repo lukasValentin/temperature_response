@@ -15,8 +15,8 @@ from eodal.core.scene import SceneCollection
 from pathlib import Path
 from typing import List
 
-from temperature_response_uncertainty import add_noise_to_temperature
-
+from ensemble_kalman_filter import EnsembleKalmanFilter
+from temperature_response import Response
 
 logger = get_settings().logger
 
@@ -27,85 +27,6 @@ np.random.seed(42)
 noise_level = 5  # in percent
 # uncertainty in LAI data (relative)
 lai_uncertainty = 5  # in percent
-
-
-class Response:
-    def __init__(self, response_curve_type, response_curve_parameters):
-        self.response_cruve_type = response_curve_type
-        self.params = response_curve_parameters
-
-    def non_linear_response(self, env_variate):
-        '''
-        env_variate: value of an environmental covariate
-        base_value: estimated value, start of the linear growing phase
-        slope: estimated value, slope of the linear phase
-        description: broken stick model according to an env variable
-        '''
-
-        base_value = self.params.get('base_value', 0)
-        slope = self.params.get('slope_value', 0)
-
-        y = (env_variate - base_value) * slope
-        y = y if env_variate > base_value else 0.
-        return y
-
-    def asymptotic_response(self, env_variate):
-        """
-        Calculates the asymptotic response for a given input variable.
-
-        Args:
-        env_variate: input variable
-        Asym: a numeric parameter representing the horizontal asymptote on
-        the right side (very large values of input).
-        lrc: a numeric parameter representing the natural logarithm of the
-        rate constant.
-        c0: a numeric parameter representing the env_variate for which the
-        response is zero.
-
-        Returns:
-        A numpy array containing the asymptotic response values.
-        """
-        Asym = self.params.get('Asym_value', 0)
-        lrc = self.params.get('lrc_value', 0)
-        c0 = self.params.get('c0_value', 0)
-
-        y = Asym * (1. - np.exp(-np.exp(lrc) * (env_variate - c0)))
-        y = np.where(y > 0., y, 0.)  # no negative growth
-        return y
-
-    def wang_engels_response(self, env_variate):
-        """
-        Calculates the Wang-Engels response for a given input variable.
-
-        Args:
-            env_variate: effective env_variable value
-
-        Returns:
-            A numpy array containing the Wang-Engels response values.
-        """
-        xmin = self.params['xmin_value']
-        xopt = self.params['xopt_value']
-        xmax = self.params['xmax_value']
-
-        alpha = np.log(2.) / np.log((xmax - xmin) / (xopt - xmin))
-
-        if xmin <= env_variate <= xmax:
-            y = (2. * (env_variate - xmin) ** alpha *
-                 (xopt - xmin) ** alpha - (env_variate - xmin) **
-                 (2. * alpha)) / \
-                ((xopt - xmin) ** (2. * alpha))
-        else:
-            y = 0
-
-        return y
-
-    def get_response(self, env_variates):
-        response_fun = getattr(
-            Response, f'{self.response_cruve_type}_response')
-        response = []
-        for env_variate in env_variates:
-            response.append(response_fun(self, env_variate))
-        return response
 
 
 def prepare_lai_ts(lai_pixel_ts: pd.Series) -> pd.Series:
@@ -140,112 +61,6 @@ def prepare_lai_ts(lai_pixel_ts: pd.Series) -> pd.Series:
         ~lai_pixel_ts.index.isin(nan_indices)].copy()
 
     return lai_pixel_ts
-
-
-def ensemble_kalman_filtering(
-        measurement_index: List[int],
-        meteo_pixel: pd.DataFrame,
-        n_sim: int,
-        Response_calculator: Response
-) -> pd.DataFrame:
-    """
-    Ensemble Kalman filtering for assimilating satellite-derived
-    LAI values into a temperature response function.
-
-    Parameters
-    ----------
-    measurement_index : List[int]
-        Indices of the LAI time series where measurements are available.
-    meteo_pixel : pd.DataFrame
-        Meteo data for the pixel with joined LAI values from satellite
-        observations.
-    n_sim : int
-        Number of simulations.
-    Response_calculatior : Response
-        Response calculator.
-    return : pd.DataFrame
-        assimilated LAI time series.
-    """
-    model_sims_between_points = []
-    lai_value_sim_start = None
-    Aa = None
-    for i in range(len(measurement_index)-1):
-        meteo_time_window = meteo_pixel.loc[
-            measurement_index[i]:measurement_index[(i+1)]].copy()
-
-        # set starting LAI value for simulation
-        # for the first observation this will be the measured value
-        if i == 0:
-            lai_value_sim_start = np.zeros((1, n_sim), dtype=float)
-        # for the other observations this will be the assimilated
-        # LAI value
-        else:
-            lai_value_sim_start = Aa[0, :]
-
-        # loop over meteo data to run ensembles of temperature response
-        # required for the ensemble Kalman filter
-        lai_modelled = []
-        model_sim = []
-        for sim in range(n_sim):
-            _meteo = meteo_time_window.copy()
-            # add noise to temperature
-            _meteo['T_mean'] = add_noise_to_temperature(
-                _meteo['T_mean'].values, noise_level=noise_level)
-            _meteo['temp_response'] = \
-                Response_calculator.get_response(_meteo['T_mean'])
-            # set response to lai_value_sim_start
-            _meteo['temp_response_cumsum'] = \
-                _meteo['temp_response'].cumsum()
-            _meteo['temp_response_cumsum'] = \
-                _meteo['temp_response_cumsum'] + \
-                lai_value_sim_start[0, sim]
-            # the cumulative sum of the temperature response at
-            # i+1 is the modelled LAI stage at i+1
-            lai_modelled.append(
-                _meteo['temp_response_cumsum'].values[-1])
-            # zip temperature response and time
-            model_sim_time = dict(
-                zip(_meteo.time, _meteo.temp_response_cumsum))
-            model_sim.append(model_sim_time)
-
-        model_sim_df = pd.DataFrame(model_sim).T
-        model_sim_df.index = meteo_time_window['time']
-        model_sims_between_points.append(model_sim_df)
-
-        # calculate the updates for the next model run
-        # using the ensemble Kalman filter
-
-        # get the model stage A
-        A_df = pd.DataFrame(lai_modelled)
-        A = np.matrix(np.asarray(lai_modelled))  # .T
-        # compute the variance within the ensemble A, P_e
-        P_e = np.matrix(A_df.cov())
-
-        # get the mean and covariance of the satellite observations
-        lai_value = meteo_time_window['lai'].iloc[-1]
-        lai_std = lai_uncertainty * 0.01 * lai_value
-        perturbed_lai = np.random.normal(lai_value, lai_std, (n_sim))
-        D = np.matrix(perturbed_lai)  # .T
-        R_e = np.matrix(pd.DataFrame(perturbed_lai).cov())
-
-        # Here we compute the Kalman gain
-        H = np.identity(1)  # len(obs) in the original code
-        K1 = P_e * (H.T)
-        K2 = (H * P_e) * H.T
-        K = K1 * ((K2 + R_e).I)
-
-        # Here we compute the analysed states that will be used to
-        # reinitialise the model at the next time step
-        Aa = A + K * (D - (H * A))
-
-    model_sims_between_points = pd.concat(
-        model_sims_between_points, axis=0)
-
-    return model_sims_between_points
-
-
-def rescale(val, in_min, in_max, out_min, out_max):
-    return out_min + (val - in_min) * ((out_max - out_min) / (in_max - in_min))
 
 
 def interpolate_lai(
@@ -331,9 +146,10 @@ def apply_temperature_response(
         fpath_lai = parcel_dir.joinpath('raw_lai_values.csv')
         lai = pd.read_csv(fpath_lai)
         lai['time'] = pd.to_datetime(
-            lai['time'], format='%Y-%m-%d %H:%M:%S', utc=True).dt.floor('H')
+            lai['time'], format='ISO8601', utc=True).dt.floor('H')
 
         # meteorological data
+        # TODO: check what the time zone of the meteo data is
         fpath_meteo = parcel_dir.joinpath('hourly_mean_temperature.csv')
         meteo = pd.read_csv(fpath_meteo)
         # ensure timestamp format
@@ -353,29 +169,23 @@ def apply_temperature_response(
         for pixel_coords, lai_pixel_ts in lai.groupby(['y', 'x']):
 
             lai_pixel_ts = prepare_lai_ts(lai_pixel_ts)
-
             # merge with meteo
             meteo_pixel = pd.merge(meteo, lai_pixel_ts, on='time', how='left')
-            measurement_index = meteo_pixel['lai'].notna()
-            measurement_index = meteo_pixel[
-                measurement_index].index.tolist()
 
-            if (len(measurement_index) <= 1):
-                continue
+            # setup Ensemble Kalman Filter
+            enskf = EnsembleKalmanFilter(
+                state_vector=meteo_pixel,
+                response=Response_calculator,
+                n_sim=n_sim)
+            # run the filter
+            enskf.run()
 
-            # calculate cumulative dose response between two
-            # consecutive measurement timepoints
-            model_sims_between_points = interpolate_lai(
-                measurement_index=measurement_index,
-                meteo_pixel=meteo_pixel,
-                Response_calculator=Response_calculator)
+            f = enskf.plot_new_states()
 
             # save results to DataFrame
             lai_interpolated_df = pd.DataFrame({
-                'time': model_sims_between_points['time'],
-                'lai': model_sims_between_points['interpolated'].values,
-                'lai_baseline': model_sims_between_points[
-                    'baseline_interpolation'].values,
+                'time': enskf.new_states['time'],
+                'lai': enskf.new_states['lai'],
                 'y': pixel_coords[0],
                 'x': pixel_coords[1]
             })
