@@ -1,26 +1,10 @@
 """
-To perform ensemble Kalman filtering on your leaf area index (LAI) model
-and satellite observations, you can follow these steps:
+Ensemble Kalman Filtering. This module is based on the notebook
+by Allard de Wit, 2017, available from
 
-    Define your state vector. It should include the state variables that
-    you want to estimate, in this case LAI, and their corresponding
-    covariance matrix.
+https://github.com/ajwdewit/pcse_notebooks/blob/master/08a_data_assimilation_with_the_EnKF.ipynb
 
-    Generate an ensemble of possible initial states. You can do this by
-    sampling from a prior distribution, or by using the model to generate a
-    set of initial states.
-
-    Run the model forward in time for each ensemble member to generate a
-    forecast ensemble. This will give you a distribution of possible future
-    states for each time step.
-
-    Assimilate the satellite observations into the forecast ensemble using
-    the Kalman gain matrix. This will update the forecast ensemble to include
-    information from the observations.
-
-    Update the state vector and covariance matrix using the updated forecast
-    ensemble.
-
+under MIT license.
 """
 
 import pandas as pd
@@ -64,10 +48,13 @@ class EnsembleKalmanFilter:
             n_sim: int,
             response: Response,
             lai_uncertainty: float = 5,
-            process_uncertainty: float = 10,
+            process_uncertainty: float = 2,
             initial_lai_lower_bound: float = 0.5,
             initial_lai_upper_bound: float = 1.5
     ):
+        """
+        Class constructor.
+        """
         self.state_vector = state_vector
         self.n_sim = n_sim
         self.response = response
@@ -142,7 +129,7 @@ class EnsembleKalmanFilter:
     def _get_process_uncertainty(
             self,
             lai_states: np.ndarray
-        ) -> np.ndarray:
+    ) -> np.ndarray:
         """
         Get the process uncertainty for the ensemble.
 
@@ -185,7 +172,7 @@ class EnsembleKalmanFilter:
             self,
             time_window: pd.DataFrame,
             lai_value_sim_start: np.ndarray
-    ) -> (list[np.ndarray], list[float]):
+    ):
         """
         Transition function simulating LAI development between
         two observations using the temperature response function.

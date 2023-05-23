@@ -7,6 +7,7 @@ Created on Apr 21, 2023
 import geopandas as gpd
 import pandas as pd
 import numpy as np
+import warnings
 
 from eodal.config import get_settings
 from eodal.core.band import Band, GeoInfo
@@ -19,6 +20,7 @@ from ensemble_kalman_filter import EnsembleKalmanFilter
 from temperature_response import Response
 
 logger = get_settings().logger
+warnings.filterwarnings('ignore')
 
 # set seed to make results reproducible
 np.random.seed(42)
@@ -63,13 +65,17 @@ def prepare_lai_ts(lai_pixel_ts: pd.Series) -> pd.Series:
     return lai_pixel_ts
 
 
-def interpolate_lai(
+def rescale(val, in_min, in_max, out_min, out_max):
+    return out_min + (val - in_min) * ((out_max - out_min) / (in_max - in_min))
+
+
+def interpolate_between_assimilated_points(
         measurement_index: List[int],
         meteo_pixel: pd.DataFrame,
-        Response_calculator: Response
+        response: Response
 ) -> pd.DataFrame:
     """
-    Interpolate LAI values between satellite observations.
+    Interpolate assimilated LAI values between satellite observations.
     """
     model_sims_between_points = []
     # loop over measurement points
@@ -78,7 +84,7 @@ def interpolate_lai(
             measurement_index[i]:measurement_index[(i+1)]].copy()
         # calculate the temperature response
         meteo_time_window['temp_response'] = \
-            Response_calculator.get_response(
+            response.get_response(
                 meteo_time_window['T_mean'])
         # get cumulative sum of temperature response
         meteo_time_window['temp_response_cumsum'] = \
@@ -86,23 +92,20 @@ def interpolate_lai(
         # scale values between lai_value_start and lai_value_end
         in_min = meteo_time_window['temp_response_cumsum'].iloc[0]
         in_max = meteo_time_window['temp_response_cumsum'].iloc[-1]
-        out_min = meteo_time_window['lai'].iloc[0]
-        out_max = meteo_time_window['lai'].iloc[-1]
-        # our assumption here is that LAI MUST increase between
-        # two observations
-        out_range = out_max - out_min
-        if out_range < 0:
-            continue
-        meteo_time_window['interpolated'] = \
-            meteo_time_window['temp_response_cumsum'].apply(
-                lambda x: rescale(x, in_min, in_max, out_min, out_max))
 
-        # as baseline, a simple linear interpolation is used
-        meteo_time_window['baseline_interpolation'] = \
-            np.linspace(
-                meteo_time_window['lai'].iloc[0],
-                meteo_time_window['lai'].iloc[-1],
-                len(meteo_time_window))
+        for measure in ['mean', 'std']:
+            out_min = meteo_time_window[
+                f'reconstructed_lai_{measure}'].iloc[0]
+            out_max = meteo_time_window[
+                f'reconstructed_lai_{measure}'].iloc[-1]
+            # our assumption here is that LAI MUST increase between
+            # two observations
+            out_range = out_max - out_min
+            if out_range < 0:
+                continue
+            meteo_time_window[f'reconstructed_lai_{measure}'] = \
+                meteo_time_window['temp_response_cumsum'].apply(
+                    lambda x: rescale(x, in_min, in_max, out_min, out_max))
 
         model_sims_between_points.append(meteo_time_window)
 
@@ -116,8 +119,23 @@ def apply_temperature_response(
         dose_response_parameters: Path,
         response_curve_type,
         covariate_granularity,
-        n_sim=50):
+        n_sim=50
+) -> None:
     """
+    Apply the temperature response function to the LAI time series.
+
+    Parameters
+    ----------
+    parcel_lai_dir : Path
+        Path to the directory containing the LAI time series.
+    dose_response_parameters : Path
+        Path to the dose response parameters.
+    response_curve_type : str
+        Type of the response curve.
+    covariate_granularity : str
+        Granularity of the covariate.
+    n_sim : int
+        Number of simulations for the ensemble Kalman filter.
     """
     # read in dose response paramters
     # TODO: change back once bug has been fixed
@@ -172,20 +190,69 @@ def apply_temperature_response(
             # merge with meteo
             meteo_pixel = pd.merge(meteo, lai_pixel_ts, on='time', how='left')
 
+            # STEP 1: Data Assimilation using Ensemble Kalman Filter
             # setup Ensemble Kalman Filter
             enskf = EnsembleKalmanFilter(
                 state_vector=meteo_pixel,
                 response=Response_calculator,
                 n_sim=n_sim)
-            # run the filter
+            # run the filter to assimilate data
             enskf.run()
 
-            f = enskf.plot_new_states()
+            # STEP 2: Interpolate between the assimilated points
+            # get assimilated results at the measurement values
+            # and interpolate between them using scaled temperature
+            # response to get a continuous LAI time series without
+            # breaks resulting from the assimilation
+            measurement_indices = meteo_pixel[
+                meteo_pixel['lai'].notnull()]['time'].tolist()
+
+            meteo_pixel['reconstructed_lai_mean'] = np.nan
+            meteo_pixel['reconstructed_lai_std'] = np.nan
+            meteo_pixel.index = meteo_pixel['time']
+
+            # get the assimilated LAI values
+            # ignore the last element as we do not have an uncertainty
+            # estimate for it
+            for measurement_index in measurement_indices[:-1]:
+                assimilated_lai_values = \
+                    enskf.new_states.loc[measurement_index].iloc[-1]
+                # get mean and standard deviation of the ensemble
+                # at the measurement point for which an S2 observation
+                # is available
+                assimilated_lai_value_mean = \
+                    np.mean(assimilated_lai_values)
+                assimilated_lai_value_std = \
+                    np.std(assimilated_lai_values)
+                meteo_pixel.loc[measurement_index,
+                                'reconstructed_lai_mean'] = \
+                    assimilated_lai_value_mean
+                meteo_pixel.loc[measurement_index,
+                                'reconstructed_lai_std'] = \
+                    assimilated_lai_value_std
+
+            # interpolate between the assimilated points
+            # using the scaled temperature response
+            # between the first and last interpolated point
+            measurement_indices = [
+                measurement_indices[0], measurement_indices[-2]]
+            model_sims_between_points = \
+                interpolate_between_assimilated_points(
+                    measurement_index=measurement_indices,
+                    meteo_pixel=meteo_pixel,
+                    response=Response_calculator)
 
             # save results to DataFrame
             lai_interpolated_df = pd.DataFrame({
-                'time': enskf.new_states['time'],
-                'lai': enskf.new_states['lai'],
+                'time': model_sims_between_points['time'],
+                'lai': model_sims_between_points[
+                    'reconstructed_lai_mean'],
+                'lai_minus_std': model_sims_between_points[
+                    'reconstructed_lai_mean'] - model_sims_between_points[
+                        'reconstructed_lai_std'],
+                'lai_plus_std': model_sims_between_points[
+                    'reconstructed_lai_mean'] + model_sims_between_points[
+                        'reconstructed_lai_std'],
                 'y': pixel_coords[0],
                 'x': pixel_coords[1]
             })
@@ -223,7 +290,9 @@ def apply_temperature_response(
                 crs=geo_info.epsg
             )
             rc = RasterCollection()
-            for band_name in ['lai', 'lai_baseline']:
+            for band_name in ['lai',
+                              'lai_minus_std',
+                              'lai_plus_std']:
                 band = Band.from_vector(
                     vector_features=data_gdf,
                     geo_info=geo_info,
