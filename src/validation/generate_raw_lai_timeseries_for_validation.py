@@ -212,7 +212,7 @@ if __name__ == '__main__':
     out_dir = Path('./results/validation_sites')
     out_dir.mkdir(exist_ok=True)
 
-    farms = ['Witzwil', 'Strickhof', 'SwissFutureFarm']
+    farms = ['Strickhof', 'SwissFutureFarm']  # possibly add 'Witzwil'
     years = [2022]  # , 2023]
 
     extract_raw_lai_timeseries(

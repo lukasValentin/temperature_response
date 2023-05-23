@@ -6,6 +6,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import warnings
 
 from eodal.core.scene import SceneCollection
 from pathlib import Path
@@ -16,6 +17,7 @@ bbch_range = (30, 59)
 black_listed_parcels = ['Bramenwies']
 
 plt.style.use('bmh')
+warnings.filterwarnings('ignore')
 
 
 def validate_interpolated_time_series(

@@ -7,6 +7,7 @@ Created on Apr 21, 2023
 import geopandas as gpd
 import pandas as pd
 import numpy as np
+import warnings
 
 from eodal.config import get_settings
 from eodal.core.band import Band, GeoInfo
@@ -19,6 +20,7 @@ from ensemble_kalman_filter import EnsembleKalmanFilter
 from temperature_response import Response
 
 logger = get_settings().logger
+warnings.filterwarnings('ignore')
 
 # set seed to make results reproducible
 np.random.seed(42)
@@ -239,11 +241,6 @@ def apply_temperature_response(
                     measurement_index=measurement_indices,
                     meteo_pixel=meteo_pixel,
                     response=Response_calculator)
-
-            # import matplotlib.pyplot as plt
-            # enskf.plot_new_states()
-            # plt.plot(meteo_pixel.time, meteo_pixel.lai, 'o', label='original LAI')
-            # plt.plot(model_sims_between_points.time, model_sims_between_points.reconstructed_lai_mean, label='modelled LAI')
 
             # save results to DataFrame
             lai_interpolated_df = pd.DataFrame({
