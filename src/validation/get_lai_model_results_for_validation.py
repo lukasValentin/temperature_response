@@ -99,8 +99,18 @@ def get_lai_model_results_for_validation(
                     continue
                 # check if an inversion result for the stem-elongation phase
                 # has been generated already
-                fpath_traits = scene_dir.joinpath(
-                    'stemelongation-endofheading_lutinv_traits.tiff')
+                # if not, we skip the scene
+                # if the date is within the tolerance window, we might
+                # use the output of the previous phenological phase
+                if date - farm_insitu_min < pd.Timedelta(days=BBCH_TOLERANCE):
+                    fpath_traits = scene_dir.joinpath(
+                        'germination-endoftillering_lutinv_traits.tiff')
+                elif farm_insitu_max - date < pd.Timedelta(days=BBCH_TOLERANCE):  # noqa: E501
+                    fpath_traits = scene_dir.joinpath(
+                        'flowering-fruitdevelopment-plantdead_lutinv_traits.tiff')  # noqa: E501
+                else:
+                    fpath_traits = scene_dir.joinpath(
+                        'stemelongation-endofheading_lutinv_traits.tiff')
 
                 if not fpath_traits.exists():
                     continue
