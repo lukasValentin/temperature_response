@@ -21,9 +21,16 @@ plt.style.use('bmh')
 def validate_interpolated_time_series(
         model_output_dir: Path,
         validation_data_dir: Path,
-):
+) -> None:
     """
-    Plot the interpolated LAI time series.
+    Validate the interpolated LAI time series.
+
+    Parameters
+    ----------
+    model_output_dir : Path
+        Path to the directory containing the model output.
+    validation_data_dir : Path
+        Path to the directory containing the validation data.
     """
     # get the validation data
     join_cols = ['date', 'location', 'parcel', 'point_id']
@@ -99,40 +106,24 @@ def validate_interpolated_time_series(
                 fpath_out = model_dir / f'{granularity}_lai_validation.csv'
                 pixel_vals_df.to_csv(fpath_out, index=False)
 
-                # simple trick if not baseline is available
-                if 'lai_baseline' not in pixel_vals_df.columns:
-                    pixel_vals_df['lai_baseline'] = pixel_vals_df[f'lai_{model}']
-
                 # scatter plot lai vs. interpolated lai
-                f, ax = plt.subplots(figsize=(16, 8), ncols=2, sharex=True,
+                f, ax = plt.subplots(figsize=(8, 8), ncols=1, sharex=True,
                                      sharey=True)
                 sns.scatterplot(
                     data=pixel_vals_df,
                     x='lai_in-situ',
                     y=f'lai_{model}',
-                    ax=ax[0])
-                sns.scatterplot(
-                    data=pixel_vals_df,
-                    x='lai_in-situ',
-                    y='lai_baseline',
-                    ax=ax[1])
-
-                for idx in range(2):
-                    ax[idx].set_xlabel('in-situ LAI' + r' [$m^2$ $m^{-2}$]')
-                    ax[idx].set_ylabel('S2-derived interpolated LAI' +
-                                       r' [$m^2$ $m^{-2}$]')
-                    ax[idx].set_xlim(0, 8)
-                    ax[idx].set_ylim(0, 8)
-                    ax[idx].plot([0, 8], [0, 8], color='black', linestyle='--')
-                    if idx == 0:
-                        ax[idx].set_title(
-                            f'{site} {model} {granularity}\n' +
-                            f'N={len(pixel_vals_df)}')
-                    else:
-                        ax[idx].set_title(
-                            f'{site} baseline {granularity}\n' +
-                            f'N={len(pixel_vals_df)}')
-
+                    ax=ax)
+ 
+                ax.set_xlabel('in-situ LAI' + r' [$m^2$ $m^{-2}$]')
+                ax.set_ylabel('S2-derived interpolated LAI' +
+                              r' [$m^2$ $m^{-2}$]')
+                ax.set_xlim(0, 8)
+                ax.set_ylim(0, 8)
+                ax.plot([0, 8], [0, 8], color='black', linestyle='--')
+                ax.set_title(
+                    f'{site} {model} {granularity}\n' +
+                    f'N={len(pixel_vals_df)}')
                 plt.tight_layout()
                 f.savefig(
                     model_dir / f'{granularity}_lai_validation.png',
