@@ -6,8 +6,6 @@ The baseline model is only applied on the validation set.
 """
 
 import geopandas as gpd
-import itertools
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import warnings
@@ -101,14 +99,14 @@ def loop_pixels(parcel_lai_dir: Path):
     for parcel_dir in parcel_lai_dir.glob('*'):
 
         # make an output directory
-        output_dir = parcel_dir.joinpath('sigmoid_model')
+        output_dir = parcel_dir.joinpath('sigmoid')
         output_dir.mkdir(exist_ok=True)
 
         # leaf area index data
         fpath_lai = parcel_dir.joinpath('raw_lai_values.csv')
         lai = pd.read_csv(fpath_lai)
         lai['time'] = pd.to_datetime(
-            lai['time'], format='%Y-%m-%d %H:%M:%S').dt.floor('H')
+            lai['time'], format='%Y-%m-%d %H:%M:%S', utc=True).dt.floor('H')
         # convert time to doy
         lai['doys'] = to_doy(lai['time'])
         # get the maximum extent of the site to make sure
@@ -217,7 +215,7 @@ def loop_pixels(parcel_lai_dir: Path):
                 vector_features=data_gdf,
                 geo_info=geo_info,
                 band_name_src='lai',
-                band_name_dst=str(time_stamp.date()),
+                band_name_dst='lai',
                 nodata_dst=np.nan,
                 snap_bounds=reference_shape
             )
@@ -228,21 +226,8 @@ def loop_pixels(parcel_lai_dir: Path):
             )
             sc.add_scene(rc)
 
-            # plot the current scene
-            f, ax = plt.subplots(figsize=(10, 10))
-            band.plot(
-                vmin=0,
-                vmax=8,
-                colormap='viridis',
-                colorbar_label=r'GLAI [$m^2$ $m^{-2}$]',
-                fontsize=18,
-                ax=ax)
-            f.savefig(
-                output_dir.joinpath(f'{time_stamp.date()}.png'),
-                dpi=300)
-            plt.close(f)
-
         # save the SceneCollection as pickled object
+        sc = sc.sort()
         fname_pkl = output_dir.joinpath('daily_lai.pkl')
         with open(fname_pkl, 'wb') as dst:
             dst.write(sc.to_pickle())
