@@ -15,7 +15,7 @@ source(paste0(path_script_base,"/functions/FUN_dose_response_fitting.R"))
 # constants
 base_path_data <- "O:/Projects/KP0030_ftschurr/GIT_repos/scripts_paper_3/results/dose_reponse_in-situ"
 
-granularity = "daily"
+granularity = "hourly"
 
 combined_measurement_list <- readRDS(paste0(base_path_data,"/output/LAI_",granularity,"_Bramenwies_MNI_Rur.rds"))
 
