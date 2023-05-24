@@ -173,8 +173,6 @@ def apply_temperature_response(
         # resample the meteo data
         if covariate_granularity == 'daily':
             meteo = meteo.resample('D', on='time').mean().reset_index()
-        else:
-            continue
 
         # calculate temperature response and write into
         # the meteo df
@@ -313,6 +311,9 @@ def apply_temperature_response(
                     nodata_dst=np.nan
                 )
                 rc.add_band(band)
+            # cast date to datetime
+            if covariate_granularity == 'daily':
+                time_stamp = pd.to_datetime(time_stamp)
             rc.scene_properties = SceneProperties(
                 acquisition_time=time_stamp
             )
@@ -327,7 +328,7 @@ def apply_temperature_response(
 
         logger.info(
             f'Interpolated {parcel_dir.name} to ' +
-            f'{covariate_granularity} LAI values' +
+            f'{covariate_granularity} LAI values ' +
             f'using {response_curve_type} response curve')
 
 
