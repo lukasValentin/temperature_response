@@ -138,17 +138,11 @@ def apply_temperature_response(
         Number of simulations for the ensemble Kalman filter.
     """
     # read in dose response paramters
-    # TODO: change back once bug has been fixed
-    # path_paramters = Path.joinpath(
-    #     dose_response_parameters,
-    #     response_curve_type,
-    #     f'{response_curve_type}_granularity_{covariate_granularity}' +
-    #     '_parameter_T_mean.csv')
     path_paramters = Path.joinpath(
         dose_response_parameters,
         response_curve_type,
-        f'{response_curve_type}_variable_delta_LAI' +
-        '_parameter_T_mean_location_CH_Bramenwies.csv')
+        f'{response_curve_type}_granularity_{covariate_granularity}' +
+        '_parameter_T_mean.csv')
 
     params = pd.read_csv(path_paramters)
     params = dict(zip(params['parameter_name'], params['parameter_value']))
