@@ -48,7 +48,7 @@ class EnsembleKalmanFilter:
             n_sim: int,
             response: Response,
             lai_uncertainty: float = 5,
-            process_uncertainty: float = 2,
+            process_uncertainty: float = 5,
             initial_lai_lower_bound: float = 0.5,
             initial_lai_upper_bound: float = 1.5
     ):
