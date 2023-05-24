@@ -252,3 +252,4 @@ analysis/
 *.pkl
 *sigmoid_model*
 src/tf_playground/enskf_basteln.py
+src/validation/check_results.py
