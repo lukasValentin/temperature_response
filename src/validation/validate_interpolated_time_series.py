@@ -12,7 +12,7 @@ from eodal.core.scene import SceneCollection
 from pathlib import Path
 
 
-models = ['non_linear', 'sigmoid']
+models = ['non_linear', 'sigmoid', 'asymptotic']
 bbch_range = (30, 59)
 black_listed_parcels = ['Bramenwies']
 
@@ -63,18 +63,21 @@ def validate_interpolated_time_series(
             model_dir = site_dir.joinpath(model)
             # read the scene collection from pickle (thre could be more than
             # one with different levels of temporal granularity)
-            pixel_vals_list = []
             for fpath_scoll in model_dir.glob('*lai.pkl'):
                 granularity = fpath_scoll.name.split('_')[0]
-                round_to = '1H' if granularity == 'hourly' else '1D'
 
                 scoll = SceneCollection.from_pickle(fpath_scoll)
                 min_date = pd.to_datetime(scoll.timestamps[0], utc=True)
                 max_date = pd.to_datetime(scoll.timestamps[-1], utc=True)
                 # loop over dates for which in-situ data is available
                 # and extract the interpolated LAI values
+                pixel_vals_list = []
                 for date, site_val_df_date in site_val_df.groupby('date'):
-                    date_rounded = date.round(round_to).tz_convert('UTC')
+                    if granularity == 'hourly':
+                        date_rounded = date.round('H').tz_convert('UTC')
+                    elif granularity == 'daily':
+                        date_rounded = pd.Timestamp(date.date()).tz_localize(
+                            'Europe/Zurich').tz_convert('UTC')
                     # continue if date is not between min and max date
                     if not (min_date <= date_rounded <= max_date):
                         continue
@@ -116,7 +119,7 @@ def validate_interpolated_time_series(
                     x='lai_in-situ',
                     y=f'lai_{model}',
                     ax=ax)
- 
+
                 ax.set_xlabel('in-situ LAI' + r' [$m^2$ $m^{-2}$]')
                 ax.set_ylabel('S2-derived interpolated LAI' +
                               r' [$m^2$ $m^{-2}$]')
