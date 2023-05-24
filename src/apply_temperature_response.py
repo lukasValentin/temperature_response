@@ -309,7 +309,8 @@ def apply_temperature_response(
 
         logger.info(
             f'Interpolated {parcel_dir.name} to ' +
-            f'{covariate_granularity} LAI values')
+            f'{covariate_granularity} LAI values' +
+            f'using {response_curve_type} response curve')
 
 
 if __name__ == '__main__':
@@ -320,13 +321,13 @@ if __name__ == '__main__':
     dose_response_parameters = Path(
         'results/dose_reponse_in-situ/output/parameter_model')  # noqa: E501
 
-    response_curve_type = "non_linear"   # non_linear, wangengels
-    # response_curve_type = "asymptotic"
+    response_curve_types = ['asymptotic', 'non_linear']  # 'WangEngels'
+    covariate_granularities = ["hourly", "daily"]
 
-    covariate_granularity = "hourly"
-
-    apply_temperature_response(
-        parcel_lai_dir=parcel_lai_dir,
-        dose_response_parameters=dose_response_parameters,
-        response_curve_type=response_curve_type,
-        covariate_granularity=covariate_granularity)
+    for response_curve_type in response_curve_types:
+        for covariate_granularity in covariate_granularities:
+            apply_temperature_response(
+                parcel_lai_dir=parcel_lai_dir,
+                dose_response_parameters=dose_response_parameters,
+                response_curve_type=response_curve_type,
+                covariate_granularity=covariate_granularity)
