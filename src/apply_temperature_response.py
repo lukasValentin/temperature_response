@@ -161,7 +161,6 @@ def apply_temperature_response(
             lai['time'], format='ISO8601', utc=True).dt.floor('H')
 
         # meteorological data
-        # TODO: check what the time zone of the meteo data is
         fpath_meteo = parcel_dir.joinpath('hourly_mean_temperature.csv')
         meteo = pd.read_csv(fpath_meteo)
         # ensure timestamp format
@@ -169,6 +168,13 @@ def apply_temperature_response(
             meteo['time'], utc=True).dt.floor('H')
         # sort
         meteo = meteo.sort_values(by='time')
+
+        # if the granulatiry of the covariate is daily, we need to
+        # resample the meteo data
+        if covariate_granularity == 'daily':
+            meteo = meteo.resample('D', on='time').mean().reset_index()
+        else:
+            continue
 
         # calculate temperature response and write into
         # the meteo df
@@ -182,7 +188,19 @@ def apply_temperature_response(
 
             lai_pixel_ts = prepare_lai_ts(lai_pixel_ts)
             # merge with meteo
-            meteo_pixel = pd.merge(meteo, lai_pixel_ts, on='time', how='left')
+            if covariate_granularity == 'daily':
+                # merge on the data
+                meteo['date'] = meteo['time'].dt.date
+                lai_pixel_ts['date'] = lai_pixel_ts['time'].dt.date
+                meteo_pixel = pd.merge(
+                    meteo, lai_pixel_ts, on='date', how='left')
+                meteo_pixel['time'] = meteo_pixel['date']
+                cols_to_drop = [x for x in meteo_pixel.columns
+                                if x.endswith('_y') or x.endswith('_x')]
+                meteo_pixel = meteo_pixel.drop(cols_to_drop, axis=1)
+            else:
+                meteo_pixel = pd.merge(
+                    meteo, lai_pixel_ts, on='time', how='left')
 
             # STEP 1: Data Assimilation using Ensemble Kalman Filter
             # setup Ensemble Kalman Filter
