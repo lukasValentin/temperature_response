@@ -53,7 +53,7 @@ class Response:
         y = np.where(y > 0., y, 0.)  # no negative growth
         return y
 
-    def wang_engels_response(self, env_variate):
+    def wangengels_response(self, env_variate):
         """
         Calculates the Wang-Engels response for a given input variable.
 
@@ -81,7 +81,7 @@ class Response:
 
     def get_response(self, env_variates):
         response_fun = getattr(
-            Response, f'{self.response_cruve_type}_response')
+            Response, f'{self.response_cruve_type.lower()}_response')
         response = []
         for env_variate in env_variates:
             response.append(response_fun(self, env_variate))
