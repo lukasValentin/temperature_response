@@ -6,7 +6,9 @@ Created on Apr 21, 2023
 
 import geopandas as gpd
 import pandas as pd
+import matplotlib.pyplot as plt
 import numpy as np
+import random
 import warnings
 
 from eodal.config import get_settings
@@ -21,6 +23,7 @@ from temperature_response import Response
 
 logger = get_settings().logger
 warnings.filterwarnings('ignore')
+plt.style.use('bmh')
 
 # set seed to make results reproducible
 np.random.seed(42)
@@ -29,6 +32,53 @@ np.random.seed(42)
 noise_level = 5  # in percent
 # uncertainty in LAI data (relative)
 lai_uncertainty = 5  # in percent
+
+
+def plot_interpolated_lai(
+        model_sims_between_points: pd.DataFrame
+) -> plt.Figure:
+    """
+    Plot the interpolated LAI time series after data assimilation.
+
+    Parameters
+    ----------
+    model_sims_between_points : pd.DataFrame
+        Data frame containing the interpolated LAI time series.
+    return : plt.Figure
+        Figure containing the plot.
+    """
+    f, ax = plt.subplots(1, 1, figsize=(10, 5))
+
+    ax.plot(
+        model_sims_between_points['time'],
+        model_sims_between_points['lai'],
+        color='red',
+        label='Satellite LAI',
+        marker='o'
+    )
+    ax.plot(
+        model_sims_between_points['time'],
+        model_sims_between_points['reconstructed_lai_mean'],
+        color='blue',
+        label='Reconstructed LAI'
+    )
+    ax.fill_between(
+        model_sims_between_points['time'],
+        model_sims_between_points['reconstructed_lai_mean'] -
+        model_sims_between_points['reconstructed_lai_std'],
+        model_sims_between_points['reconstructed_lai_mean'] +
+        model_sims_between_points['reconstructed_lai_std'],
+        color='blue',
+        alpha=0.2,
+        label='Uncertainty'
+    )
+    ax.set_xlabel('Time')
+    # rotate x labels by 45 degrees
+    for tick in ax.get_xticklabels():
+        tick.set_rotation(45)
+    ax.set_ylabel(r'LAI [$m^2$ $m^{-2}$]')
+    ax.legend()
+    return f
 
 
 def prepare_lai_ts(lai_pixel_ts: pd.Series) -> pd.Series:
@@ -99,10 +149,12 @@ def interpolate_between_assimilated_points(
             out_max = meteo_time_window[
                 f'reconstructed_lai_{measure}'].iloc[-1]
             # our assumption here is that LAI MUST increase between
-            # two observations
-            out_range = out_max - out_min
-            if out_range < 0:
-                continue
+            # two observations (there is a small tolerance because
+            # of the LAI uncertainty)
+            # out_range = out_max - out_min
+            # if out_range < 0:
+            #     if abs(out_range) > out_max * 0.01 * lai_uncertainty:
+            #         continue
             meteo_time_window[f'reconstructed_lai_{measure}'] = \
                 meteo_time_window['temp_response_cumsum'].apply(
                     lambda x: rescale(x, in_min, in_max, out_min, out_max))
@@ -119,7 +171,8 @@ def apply_temperature_response(
         dose_response_parameters: Path,
         response_curve_type,
         covariate_granularity,
-        n_sim=50
+        n_sim=50,
+        n_plots=20
 ) -> None:
     """
     Apply the temperature response function to the LAI time series.
@@ -136,6 +189,8 @@ def apply_temperature_response(
         Granularity of the covariate.
     n_sim : int
         Number of simulations for the ensemble Kalman filter.
+    n_plots : int
+        Number of plots to generate (random selection)
     """
     # read in dose response paramters
     path_paramters = Path.joinpath(
@@ -150,9 +205,24 @@ def apply_temperature_response(
     # loop over parcels and read the data
     for parcel_dir in parcel_lai_dir.glob('*'):
 
+        logger.info(
+            f'Working on {parcel_dir.name} to get ' +
+            f'{covariate_granularity} LAI values ' +
+            f'using {response_curve_type} response curve')
+
+        # for the test pixels we can use our phenology model
+        fpath_relevant_phase = parcel_dir.joinpath('relevant_phase.txt')
+        if fpath_relevant_phase.exists():
+            with open(fpath_relevant_phase, 'r') as src:
+                phase = src.read()
+            if phase != 'stemelongation-endofheading':
+                continue
+
         # make an output dir
         output_dir = parcel_dir.joinpath(response_curve_type)
         output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir_plots = output_dir.joinpath('plots')
+        output_dir_plots.mkdir(parents=True, exist_ok=True)
 
         # leaf area index data
         fpath_lai = parcel_dir.joinpath('raw_lai_values.csv')
@@ -182,7 +252,18 @@ def apply_temperature_response(
 
         # loop over pixels
         interpolated_pixel_results = []
+        # determine randomly for which pixel_coords we want to
+        # generate plots
+        try:
+            pixel_coords_to_plot = random.sample(
+                list(lai.groupby(['y', 'x']).groups.keys()), n_plots)
+        except ValueError:
+            pixel_coords_to_plot = random.sample(
+                list(lai.groupby(['y', 'x']).groups.keys()), 1)
+
         for pixel_coords, lai_pixel_ts in lai.groupby(['y', 'x']):
+
+            plot_pixel = pixel_coords in pixel_coords_to_plot
 
             lai_pixel_ts = prepare_lai_ts(lai_pixel_ts)
             # merge with meteo
@@ -219,12 +300,14 @@ def apply_temperature_response(
 
             meteo_pixel['reconstructed_lai_mean'] = np.nan
             meteo_pixel['reconstructed_lai_std'] = np.nan
+            meteo_pixel['reconstructed_lai_diff'] = np.nan
             meteo_pixel.index = meteo_pixel['time']
 
             # get the assimilated LAI values
             # ignore the last element as we do not have an uncertainty
             # estimate for it
-            for measurement_index in measurement_indices[:-1]:
+            for i in range(len(measurement_indices[:-1])):
+                measurement_index = measurement_indices[i]
                 assimilated_lai_values = \
                     enskf.new_states.loc[measurement_index].iloc[-1]
                 # get mean and standard deviation of the ensemble
@@ -240,17 +323,47 @@ def apply_temperature_response(
                 meteo_pixel.loc[measurement_index,
                                 'reconstructed_lai_std'] = \
                     assimilated_lai_value_std
+                # calculate the difference between the assimilated
+                # LAI values (i.e., the slope between the assimilated
+                # points)
+                if i > 0:
+                    previous_measurement_index = measurement_indices[i-1]
+                    meteo_pixel.loc[measurement_index,
+                                    'reconstructed_lai_diff'] = \
+                        assimilated_lai_value_mean - \
+                        meteo_pixel.loc[previous_measurement_index,
+                                        'reconstructed_lai_mean']
+
+            # set the measurement indices so that only data points are
+            # considered for interpolation that do not cause a drop
+            # in LAI (i.e., the reconstructed_lai_diff) must not be
+            # negative
+            measurement_indices = meteo_pixel[
+                (meteo_pixel['lai'].notnull()) &
+                (meteo_pixel['reconstructed_lai_diff'] >= 0)]['time'].tolist()
 
             # interpolate between the assimilated points
             # using the scaled temperature response
-            # between the first and last interpolated point
-            measurement_indices = [
-                measurement_indices[0], measurement_indices[-2]]
-            model_sims_between_points = \
-                interpolate_between_assimilated_points(
-                    measurement_index=measurement_indices,
-                    meteo_pixel=meteo_pixel,
-                    response=Response_calculator)
+            try:
+                model_sims_between_points = \
+                    interpolate_between_assimilated_points(
+                        measurement_index=measurement_indices,
+                        meteo_pixel=meteo_pixel,
+                        response=Response_calculator)
+            except ValueError as e:
+                logger.error(
+                    f'{parcel_dir.name} {pixel_coords} failed: {e}')
+                continue
+
+            # plot
+            if plot_pixel:
+                f = plot_interpolated_lai(model_sims_between_points)
+                f.savefig(
+                    output_dir_plots.joinpath(
+                        f'interpolated_lai_{pixel_coords[0]}'
+                        f'_{pixel_coords[1]}_{covariate_granularity}.png'),
+                    dpi=300, bbox_inches='tight')
+                plt.close(f)
 
             # save results to DataFrame
             lai_interpolated_df = pd.DataFrame({
@@ -334,19 +447,27 @@ def apply_temperature_response(
 
 if __name__ == '__main__':
 
+    import os
+    cwd = Path(__file__).absolute().parent.parent
+    os.chdir(cwd)
+
+    # apply model at the validation sites and the test sites
     # directory with parcel LAI time series
-    parcel_lai_dir = Path('results/validation_sites')
+    directories = ['test_sites_pixel_ts']  # 'validation_sites'
 
-    dose_response_parameters = Path(
-        'results/dose_reponse_in-situ/output/parameter_model')  # noqa: E501
+    for directory in directories:
+        parcel_lai_dir = Path('results') / directory
 
-    response_curve_types = ['asymptotic', 'non_linear']  # 'WangEngels'
-    covariate_granularities = ["hourly", "daily"]
+        dose_response_parameters = Path(
+            'results/dose_reponse_in-situ/output/parameter_model')  # noqa: E501
 
-    for response_curve_type in response_curve_types:
-        for covariate_granularity in covariate_granularities:
-            apply_temperature_response(
-                parcel_lai_dir=parcel_lai_dir,
-                dose_response_parameters=dose_response_parameters,
-                response_curve_type=response_curve_type,
-                covariate_granularity=covariate_granularity)
+        response_curve_types = ['asymptotic', 'non_linear']  # 'WangEngels'
+        covariate_granularities = ["hourly", "daily"]
+
+        for response_curve_type in response_curve_types:
+            for covariate_granularity in covariate_granularities:
+                apply_temperature_response(
+                    parcel_lai_dir=parcel_lai_dir,
+                    dose_response_parameters=dose_response_parameters,
+                    response_curve_type=response_curve_type,
+                    covariate_granularity=covariate_granularity)
