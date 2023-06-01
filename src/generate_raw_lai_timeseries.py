@@ -20,7 +20,7 @@ formats = {
     'Witzwil': '%Y-%m-%d %H:%M:%S',
     'Strickhof': '%d.%m.%Y %H:%M'
 }
-traits = ['lai', 'ccc']
+traits = ['lai', 'lai_q05', 'lai_95']
 
 logger = get_settings().logger
 
@@ -305,12 +305,22 @@ def extract_raw_lai_timeseries(
                 'hourly_mean_temperature.png'), bbox_inches='tight')
             plt.close(f)
 
+            # write the relevant phase to a file so that we know which phase
+            # was used
+            with open(
+                    out_dir_parcel.joinpath('relevant_phase.txt'), 'w+') as f:
+                f.write(relevant_phase)
+
             logger.info(
                 f'Prepared LAI data for parcel {parcel_name} at {site_name}'
                 f' ({relevant_phase})')
 
 
 if __name__ == '__main__':
+
+    import os
+    working_dir = Path(__file__).absolute().parent.parent
+    os.chdir(working_dir)
 
     test_sites_dir = Path('./data/Test_Sites')
     s2_trait_dir = Path(
