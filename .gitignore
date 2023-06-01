@@ -253,3 +253,4 @@ analysis/
 *sigmoid_model*
 src/tf_playground/enskf_basteln.py
 src/validation/check_results.py
+data/yield/Data_Code_Yieldmapping_MS
