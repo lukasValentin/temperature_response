@@ -148,13 +148,6 @@ def interpolate_between_assimilated_points(
                 f'reconstructed_lai_{measure}'].iloc[0]
             out_max = meteo_time_window[
                 f'reconstructed_lai_{measure}'].iloc[-1]
-            # our assumption here is that LAI MUST increase between
-            # two observations (there is a small tolerance because
-            # of the LAI uncertainty)
-            # out_range = out_max - out_min
-            # if out_range < 0:
-            #     if abs(out_range) > out_max * 0.01 * lai_uncertainty:
-            #         continue
             meteo_time_window[f'reconstructed_lai_{measure}'] = \
                 meteo_time_window['temp_response_cumsum'].apply(
                     lambda x: rescale(x, in_min, in_max, out_min, out_max))
@@ -164,6 +157,44 @@ def interpolate_between_assimilated_points(
     model_sims_between_points = pd.concat(
         model_sims_between_points, axis=0)
     return model_sims_between_points
+
+
+def merge_with_meteo(
+        meteo: pd.DataFrame,
+        lai_pixel_ts: pd.DataFrame,
+        covariate_granularity: str
+) -> pd.DataFrame:
+    """
+    Merge meteo data with LAI time series.
+
+    Parameters
+    ----------
+    meteo : pd.DataFrame
+        Meteo data.
+    lai_pixel_ts : pd.DataFrame
+        LAI time series.
+    covariate_granularity : str
+        Granularity of the covariates. Either 'daily' or 'hourly'.
+    Returns
+    -------
+    pd.DataFrame
+        Merged data.
+    """
+    _meteo = meteo.copy()
+    if covariate_granularity == 'daily':
+        # merge on the data
+        _meteo['date'] = _meteo['time'].dt.date
+        lai_pixel_ts['date'] = lai_pixel_ts['time'].dt.date
+        meteo_pixel = pd.merge(
+            _meteo, lai_pixel_ts, on='date', how='left')
+        meteo_pixel['time'] = meteo_pixel['date']
+        cols_to_drop = [x for x in meteo_pixel.columns
+                        if x.endswith('_y') or x.endswith('_x')]
+        meteo_pixel = meteo_pixel.drop(cols_to_drop, axis=1)
+    else:
+        meteo_pixel = pd.merge(
+            _meteo, lai_pixel_ts, on='time', how='left')
+    return meteo_pixel
 
 
 def apply_temperature_response(
@@ -205,6 +236,10 @@ def apply_temperature_response(
     # loop over parcels and read the data
     for parcel_dir in parcel_lai_dir.glob('*'):
 
+        # debug
+        if parcel_dir.name != 'parcel_37_2018-04-20-2018-05-25':
+            continue
+
         logger.info(
             f'Working on {parcel_dir.name} to get ' +
             f'{covariate_granularity} LAI values ' +
@@ -221,6 +256,7 @@ def apply_temperature_response(
         # make an output dir
         output_dir = parcel_dir.joinpath(response_curve_type)
         output_dir.mkdir(parents=True, exist_ok=True)
+
         output_dir_plots = output_dir.joinpath('plots')
         output_dir_plots.mkdir(parents=True, exist_ok=True)
 
@@ -266,20 +302,10 @@ def apply_temperature_response(
             plot_pixel = pixel_coords in pixel_coords_to_plot
 
             lai_pixel_ts = prepare_lai_ts(lai_pixel_ts)
-            # merge with meteo
-            if covariate_granularity == 'daily':
-                # merge on the data
-                meteo['date'] = meteo['time'].dt.date
-                lai_pixel_ts['date'] = lai_pixel_ts['time'].dt.date
-                meteo_pixel = pd.merge(
-                    meteo, lai_pixel_ts, on='date', how='left')
-                meteo_pixel['time'] = meteo_pixel['date']
-                cols_to_drop = [x for x in meteo_pixel.columns
-                                if x.endswith('_y') or x.endswith('_x')]
-                meteo_pixel = meteo_pixel.drop(cols_to_drop, axis=1)
-            else:
-                meteo_pixel = pd.merge(
-                    meteo, lai_pixel_ts, on='time', how='left')
+            meteo_pixel = merge_with_meteo(
+                meteo=meteo,
+                lai_pixel_ts=lai_pixel_ts,
+                covariate_granularity=covariate_granularity)
 
             # STEP 1: Data Assimilation using Ensemble Kalman Filter
             # setup Ensemble Kalman Filter
@@ -289,6 +315,40 @@ def apply_temperature_response(
                 n_sim=n_sim)
             # run the filter to assimilate data
             enskf.run()
+
+            # special case: if we only have a single measurement
+            # we cannot interpolate between the assimilated points.
+            # However, we can use the model runs to try to impute
+            # missing values
+            if len(lai_pixel_ts) == 1:
+                # if the start value is missing, we impute the
+                # value from ensemble run that came closest to the
+                # measurement
+                best_matching_ensemble_run = enskf.new_states.iloc[0].values[
+                    np.argmin(np.abs(lai_pixel_ts['lai'].iloc[0] -
+                                     enskf.new_states.iloc[-1]))]
+                reconstructed_record = pd.DataFrame([{
+                    'time': meteo_pixel['time'].iloc[1],
+                    'lai': best_matching_ensemble_run,
+                    'x': pixel_coords[1],
+                    'y': pixel_coords[0],
+                    'pheno_phase': 'stemelongation-endofheading'}])
+                lai_pixel_ts = pd.concat(
+                    [lai_pixel_ts, reconstructed_record]).sort_values(
+                        by='time').reset_index(drop=True)
+
+                meteo_pixel = merge_with_meteo(
+                    meteo=meteo,
+                    lai_pixel_ts=lai_pixel_ts,
+                    covariate_granularity=covariate_granularity)
+
+                # re-run the filter
+                enskf = EnsembleKalmanFilter(
+                    state_vector=meteo_pixel,
+                    response=Response_calculator,
+                    n_sim=n_sim)
+                # run the filter to assimilate data
+                enskf.run()
 
             # STEP 2: Interpolate between the assimilated points
             # get assimilated results at the measurement values
@@ -303,10 +363,10 @@ def apply_temperature_response(
             meteo_pixel['reconstructed_lai_diff'] = np.nan
             meteo_pixel.index = meteo_pixel['time']
 
-            # get the assimilated LAI values
+            # STEP 3: get the assimilated LAI values
             # ignore the last element as we do not have an uncertainty
             # estimate for it
-            for i in range(len(measurement_indices[:-1])):
+            for i in range(len(measurement_indices)):
                 measurement_index = measurement_indices[i]
                 assimilated_lai_values = \
                     enskf.new_states.loc[measurement_index].iloc[-1]
@@ -326,7 +386,15 @@ def apply_temperature_response(
                 # calculate the difference between the assimilated
                 # LAI values (i.e., the slope between the assimilated
                 # points)
-                if i > 0:
+                # the exception is the first and last measurement
+                # point for which we set the difference to 0
+                if i == 0:
+                    meteo_pixel.loc[measurement_index,
+                                    'reconstructed_lai_diff'] = 0
+                elif i == len(measurement_indices) - 1:
+                    meteo_pixel.loc[measurement_index,
+                                    'reconstructed_lai_diff'] = 0
+                else:
                     previous_measurement_index = measurement_indices[i-1]
                     meteo_pixel.loc[measurement_index,
                                     'reconstructed_lai_diff'] = \
@@ -334,7 +402,8 @@ def apply_temperature_response(
                         meteo_pixel.loc[previous_measurement_index,
                                         'reconstructed_lai_mean']
 
-            # set the measurement indices so that only data points are
+            # STEP 4: interpolate between the assimilated points.
+            # Set the measurement indices so that only data points are
             # considered for interpolation that do not cause a drop
             # in LAI (i.e., the reconstructed_lai_diff) must not be
             # negative
@@ -355,7 +424,7 @@ def apply_temperature_response(
                     f'{parcel_dir.name} {pixel_coords} failed: {e}')
                 continue
 
-            # plot
+            # plot time series
             if plot_pixel:
                 f = plot_interpolated_lai(model_sims_between_points)
                 f.savefig(
