@@ -20,7 +20,7 @@ formats = {
     'Witzwil': '%Y-%m-%d %H:%M:%S',
     'Strickhof': '%d.%m.%Y %H:%M'
 }
-traits = ['lai', 'lai_q05', 'lai_95']
+traits = ['lai', 'lai_q05', 'lai_q95']
 
 logger = get_settings().logger
 
@@ -125,23 +125,24 @@ def extract_raw_lai_timeseries(
             s2_obs_parcel['number'] = [
                 x for x in range(s2_obs_parcel.shape[0])]
 
-            # TODO: This clause can be removed once the issue with the
-            # 2023 data is solved
-            try:
-                scene_before = s2_obs_parcel[
-                    s2_obs_parcel.result_exists]['number'][0] - 1
-            except Exception:
-                continue
-            if scene_before >= 0:
-                scene_before_idx = s2_obs_parcel[
-                    s2_obs_parcel.number == scene_before].index[0]
-                s2_obs_parcel.loc[scene_before_idx, 'result_exists'] = True
-            scene_after = s2_obs_parcel[
-                s2_obs_parcel.result_exists]['number'][-1] + 1
-            if scene_after < s2_obs_parcel.shape[0]:
-                scene_after_idx = s2_obs_parcel[
-                    s2_obs_parcel.number == scene_after].index[0]
-                s2_obs_parcel.loc[scene_after_idx, 'result_exists'] = True
+            for ii in range(1, 3):
+                # TODO: This clause can be removed once the issue with the
+                # 2023 data is solved
+                try:
+                    scene_before = s2_obs_parcel[
+                        s2_obs_parcel.result_exists]['number'][0] - ii
+                except Exception:
+                    continue
+                if scene_before >= 0:
+                    scene_before_idx = s2_obs_parcel[
+                        s2_obs_parcel.number == scene_before].index[0]
+                    s2_obs_parcel.loc[scene_before_idx, 'result_exists'] = True
+                scene_after = s2_obs_parcel[
+                    s2_obs_parcel.result_exists]['number'][-1] + ii
+                if scene_after < s2_obs_parcel.shape[0]:
+                    scene_after_idx = s2_obs_parcel[
+                        s2_obs_parcel.number == scene_after].index[0]
+                    s2_obs_parcel.loc[scene_after_idx, 'result_exists'] = True
 
             s2_obs_parcel = s2_obs_parcel[s2_obs_parcel.result_exists].copy()
             # loop over remaining sensing dates and read data
@@ -220,13 +221,14 @@ def extract_raw_lai_timeseries(
                     # and add the update scene
                     scoll.add_scene(new_scene)
 
-            # make sure the scene are sorted chronologically
-            scoll = scoll.sort('asc')
             # continue if no scenes were found
             if scoll.empty:
                 logger.warn(
                     f'No scenes found for parcel {parcel_name} at {site_name}')
                 continue
+
+            # make sure the scene are sorted chronologically
+            scoll = scoll.sort('asc')
 
             min_time = pd.to_datetime(scoll.timestamps[0].split('+')[0])
             max_time = pd.to_datetime(scoll.timestamps[-1].split('+')[0])
