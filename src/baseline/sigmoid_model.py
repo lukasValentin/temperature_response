@@ -6,8 +6,10 @@ The baseline model is only applied on the validation set.
 """
 
 import geopandas as gpd
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import random
 import warnings
 
 from eodal.config import get_settings
@@ -20,6 +22,7 @@ from shapely.geometry import Polygon
 
 warnings.filterwarnings('ignore')
 logger = get_settings().logger
+plt.style.use('bmh')
 
 
 def sigmoid(
@@ -86,7 +89,46 @@ def to_doy(time: pd.Series) -> pd.Series:
     return int_time
 
 
-def loop_pixels(parcel_lai_dir: Path):
+def plot_sigmoid(
+        time_stamps: np.ndarray,
+        lai_values: np.ndarray,
+        lai_interpolated: np.ndarray
+) -> plt.Figure:
+    """
+    Plot the sigmoid function fitted to the LAI values.
+
+    Parameters
+    ----------
+    time_stamps : np.ndarray
+        Time stamps.
+    lai_values : np.ndarray
+        Original satellite-derived LAI values.
+    lai_interpolated : np.ndarray
+        Interpolated LAI values.
+    Returns
+    -------
+    plt.Figure
+        Figure with the plot.
+    """
+    fig, ax = plt.subplots(figsize=(10, 5))
+    # get array with daily time stamps
+    daily_time_stamps = np.arange(
+        time_stamps.min(), time_stamps.max() + pd.Timedelta('1D'),
+        dtype='datetime64[D]')
+    # plot the original LAI values
+    ax.scatter(time_stamps, lai_values, color='red', label='Satellite LAI')
+    ax.plot(daily_time_stamps, lai_interpolated, label='Reconstructed LAI')
+    ax.legend(loc='best')
+    ax.set_xlabel('Time')
+    # rotate x labels by 45 degrees
+    for tick in ax.get_xticklabels():
+        tick.set_rotation(45)
+    ax.set_ylabel(r'LAI [$m^2$ $m^{-2}$]')
+    plt.show()
+    return fig
+
+
+def loop_pixels(parcel_lai_dir: Path, n_plots: int = 20):
     """
     Loop over pixels and apply the sigmoid model.
 
@@ -94,6 +136,8 @@ def loop_pixels(parcel_lai_dir: Path):
     ----------
     parcel_lai_dir : Path
         Directory with parcel LAI time series.
+    n_plots : int
+        Number of plots to generate (selected randomly).
     """
     # loop over parcels and read the data
     for parcel_dir in parcel_lai_dir.glob('*'):
@@ -102,11 +146,22 @@ def loop_pixels(parcel_lai_dir: Path):
         output_dir = parcel_dir.joinpath('sigmoid')
         output_dir.mkdir(exist_ok=True)
 
+        output_dir_plots = output_dir.joinpath('plots')
+        output_dir_plots.mkdir(exist_ok=True)
+
+        # for the test pixels we can use our phenology model
+        fpath_relevant_phase = parcel_dir.joinpath('relevant_phase.txt')
+        if fpath_relevant_phase.exists():
+            with open(fpath_relevant_phase, 'r') as src:
+                phase = src.read()
+            if phase != 'stemelongation-endofheading':
+                continue
+
         # leaf area index data
         fpath_lai = parcel_dir.joinpath('raw_lai_values.csv')
         lai = pd.read_csv(fpath_lai)
         lai['time'] = pd.to_datetime(
-            lai['time'], format='%Y-%m-%d %H:%M:%S', utc=True).dt.floor('H')
+            lai['time'], utc=True).dt.floor('H')
         # convert time to doy
         lai['doys'] = to_doy(lai['time'])
         # get the maximum extent of the site to make sure
@@ -118,9 +173,20 @@ def loop_pixels(parcel_lai_dir: Path):
             [(min_x, min_y), (min_x, max_y),
              (max_x, max_y), (max_x, min_y)])
 
+        # determine randomly for which pixel_coords we want to
+        # generate plots
+        try:
+            pixel_coords_to_plot = random.sample(
+                list(lai.groupby(['y', 'x']).groups.keys()), n_plots)
+        except ValueError:
+            pixel_coords_to_plot = random.sample(
+                list(lai.groupby(['y', 'x']).groups.keys()), 1)
+
         # loop over single pixels
         interpolated_pixel_results = []
         for pixel_coords, lai_pixel_ts in lai.groupby(['y', 'x']):
+
+            plot = pixel_coords in pixel_coords_to_plot
 
             lai_pixel_ts.sort_values(by='time', inplace=True)
 
@@ -180,6 +246,23 @@ def loop_pixels(parcel_lai_dir: Path):
             })
             interpolated_pixel_results.append(lai_interpolated_df)
 
+            # optional plotting of pixel time series
+            if plot:
+                orig_lai_values = \
+                    lai_pixel_ts[
+                        lai_pixel_ts['lai'].notnull()][['time', 'lai']]
+                f = plot_sigmoid(
+                    time_stamps=orig_lai_values['time'].values,
+                    lai_values=orig_lai_values['lai'].values,
+                    lai_interpolated=lai_interpolated
+                )
+                f.savefig(
+                    output_dir_plots.joinpath(
+                        f'interpolated_lai_{pixel_coords[0]}'
+                        f'_{pixel_coords[1]}_daily.png'),
+                    dpi=300, bbox_inches='tight')
+                plt.close(f)
+
         # concatenate the results for all pixels
         interpolated_pixel_results_parcel = pd.concat(
             interpolated_pixel_results, ignore_index=True)
@@ -237,7 +320,14 @@ def loop_pixels(parcel_lai_dir: Path):
 
 if __name__ == '__main__':
 
-    # directory with parcel LAI time series
-    parcel_lai_dir = Path('./results/validation_sites')
+    import os
+    cwd = Path(__file__).absolute().parent.parent
+    os.chdir(cwd)
 
-    loop_pixels(parcel_lai_dir=parcel_lai_dir)
+    # apply model at the validation sites and the test sites
+    # directory with parcel LAI time series
+    directories = ['test_sites_pixel_ts', 'validation_sites']
+
+    for directory in directories:
+        parcel_lai_dir = Path('results') / directory
+        loop_pixels(parcel_lai_dir=parcel_lai_dir)
