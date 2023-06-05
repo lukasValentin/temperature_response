@@ -76,8 +76,8 @@ def extract_s2_traits(
 
                 # check if inversion results exists already
                 fname = scene_dir.joinpath(f'{pheno_phase}_lutinv_traits.tiff')
-                if fname.exists():
-                    continue
+                # if fname.exists():
+                #     continue
 
                 # draw sub-sample from LUT if required
                 if lut_sizes[pheno_phase] < lut.shape[0]:
