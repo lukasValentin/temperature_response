@@ -237,18 +237,18 @@ def get_s2_spectra(
         # don't need to run all simulations all the time
         scene_month = pd.to_datetime(metadata.sensing_time.iloc[0]).month
         pheno_phase_selection = None
-        if scene_month in [10, 11, 12, 1, 2]:
-            pheno_phase_selection = ['germination-endoftillering']
-        elif scene_month in [3, 4]:
+
+        if scene_month in [2, 3, 4]:
             pheno_phase_selection = [
                 'germination-endoftillering', 'stemelongation-endofheading']
-        elif scene_month in [5, 6, 7, 8]:
+        elif scene_month in [5, 6, 7]:
             pheno_phase_selection = [
                 'stemelongation-endofheading',
                 'flowering-fruitdevelopment-plantdead']
-        elif scene_month in [9]:
+        else:
             # there should be no winter wheat growing in September
             continue
+        pheno_phase_selection = pheno_phase_selection + ['all-phases']
 
         # get viewing and illumination angles for PROSAIL run
         angle_dict = {
@@ -322,6 +322,9 @@ def get_s2_spectra(
 
 if __name__ == '__main__':
 
+    cwd = Path(__file__).absolute().parent
+    os.chdir(cwd)
+
     # global setup
     out_dir = Path(
         '/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')  # noqa: E501
@@ -339,7 +342,7 @@ if __name__ == '__main__':
         'linearize_lai': False
     }
     # directory with LUT parameters for different phenological macro-stages
-    lut_params_dir = Path('lut_params')
+    lut_params_dir = Path('lut_params')  # Path('src/lut_params')
 
     # target trait(s)
     traits = ['lai', 'ccc']
@@ -354,7 +357,7 @@ if __name__ == '__main__':
 
     import sys
     sites = sys.argv[1:]
-    # sites = ['SwissFutureFarm']
+    # sites = ['Witzwil']
     # site_dir = Path('./data/Test_Sites')
     site_dir = Path('../data/Test_Sites')
 

@@ -52,10 +52,13 @@ combined_data_cleaning_function <- function(one_measurement_unit,
   require(dplyr)
   # write all values into a list
   measurement_list <- sorting_env_to_list(one_measurement_unit, variable, df_env, env_variable)
-  
   # data cleaning options
   if("no_negative_values" %in% data_cleaning){
-    measurement_list <- remove_negative_values(measurement_list)
+    if(length(which(as.numeric(names(measurement_list)) < 0))== length(names(measurement_list))){
+      return(NA)
+    }else{
+      measurement_list <- remove_negative_values(measurement_list)
+    }
   }
   if("select_negative_values" %in% data_cleaning){
     measurement_list <- select_negative_values(measurement_list)

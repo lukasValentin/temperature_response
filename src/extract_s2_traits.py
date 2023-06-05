@@ -171,7 +171,7 @@ def extract_s2_traits(
 if __name__ == '__main__':
 
     # list of farms to process
-    farms = ['Strickhof', 'Witzwil', 'SwissFutureFarm']
+    farms = ['Strickhof', 'SwissFutureFarm']
     data_dir = Path(
         '/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')  # noqa: E501
 
