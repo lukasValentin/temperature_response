@@ -237,7 +237,7 @@ def apply_temperature_response(
     for parcel_dir in parcel_lai_dir.glob('*'):
 
         # debug
-        if parcel_dir.name != 'parcel_37_2018-04-20-2018-05-25':
+        if parcel_dir.name != 'parcel_37_2017-11-01-2018-06-09':
             continue
 
         logger.info(
@@ -285,6 +285,12 @@ def apply_temperature_response(
         Response_calculator = Response(
             response_curve_type=response_curve_type,
             response_curve_parameters=params)
+
+        # we need to ensure that coordinates are rounded to whole digits
+        # otherwise we will get problems when identifying the single pixels
+        # in the LAI data
+        lai['x'] = lai['x'].round(0)
+        lai['y'] = lai['y'].round(0)
 
         # loop over pixels
         interpolated_pixel_results = []

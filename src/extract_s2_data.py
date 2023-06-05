@@ -238,10 +238,10 @@ def get_s2_spectra(
         scene_month = pd.to_datetime(metadata.sensing_time.iloc[0]).month
         pheno_phase_selection = None
 
-        if scene_month in [3, 4]:
+        if scene_month in [2, 3, 4]:
             pheno_phase_selection = [
                 'germination-endoftillering', 'stemelongation-endofheading']
-        elif scene_month in [5, 6]:
+        elif scene_month in [5, 6, 7]:
             pheno_phase_selection = [
                 'stemelongation-endofheading',
                 'flowering-fruitdevelopment-plantdead']
@@ -357,7 +357,7 @@ if __name__ == '__main__':
 
     import sys
     sites = sys.argv[1:]
-    # sites = ['SwissFutureFarm']
+    # sites = ['Witzwil']
     # site_dir = Path('./data/Test_Sites')
     site_dir = Path('../data/Test_Sites')
 
