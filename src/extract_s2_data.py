@@ -357,8 +357,7 @@ if __name__ == '__main__':
 
     import sys
     sites = sys.argv[1:]
-    # sites = ['SwissFutureFarm']
-    # site_dir = Path('./data/Test_Sites')
+    # sites = ['Witzwil']
     site_dir = Path('../data/Test_Sites')
 
     for site in sites:

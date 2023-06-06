@@ -8,6 +8,7 @@ The required lookup tables have been generated in the previous step (i.e.,
 
 import numpy as np
 import pandas as pd
+import shutil
 import warnings
 
 from eodal.config import get_settings
@@ -60,11 +61,25 @@ def extract_s2_traits(
         for scene_dir in farm_dir.glob('*.SAFE'):
             # load the Sentinel-2 data
             fpath_s2_raster = scene_dir.joinpath('SRF_S2.tiff')
+
+            # TODO: This is just used to clean up a bit
+            if not fpath_s2_raster.exists():
+                # remove the directory
+                shutil.rmtree(scene_dir)
+                continue
+
             s2_ds = RasterCollection.from_multi_band_raster(
                 fpath_raster=fpath_s2_raster)
-            s2_spectra = s2_ds.get_values(band_selection=band_selection)
             bands = s2_ds.band_names
             bands.remove('SCL')
+
+            # The border regions are not recognized correctly
+            # resulting in a wrong LAI
+            mask_values = [0, 1.e+20]
+            for mask_value in mask_values:
+                mask_blue = s2_ds['B02'] == mask_value
+                s2_ds.mask(mask=mask_blue, inplace=True)
+            s2_spectra = s2_ds.get_values(band_selection=band_selection)
 
             logger.info(f'{farm}: Started inversion of {scene_dir.name}')
             # find the LUTs generated and use them for inversion
@@ -72,7 +87,7 @@ def extract_s2_traits(
                 lut = pd.read_pickle(fpath_lut)
                 pheno_phase = fpath_lut.name.split('_')[0]
                 if pheno_phase == 'all':
-                    pheno_phase = 'all_phases'
+                    pheno_phase = 'all-phases'
 
                 # check if inversion results exists already
                 fname = scene_dir.joinpath(f'{pheno_phase}_lutinv_traits.tiff')
@@ -171,31 +186,31 @@ def extract_s2_traits(
 if __name__ == '__main__':
 
     # list of farms to process
-    farms = ['Strickhof', 'SwissFutureFarm']
+    farms = ['Witzwil', 'Strickhof', 'SwissFutureFarm']
     data_dir = Path(
         '/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')  # noqa: E501
 
     # inversion set-up for the different phenological phases
     cost_functions = {
-        'all_phases': 'mae',
+        'all-phases': 'mae',
         'germination-endoftillering': 'rmse',
         'stemelongation-endofheading': 'mae',
         'flowering-fruitdevelopment-plantdead': 'mae'
     }
     aggregation_methods = {
-        'all_phases': 'median',
+        'all-phases': 'median',
         'germination-endoftillering': 'median',
         'stemelongation-endofheading': 'median',
         'flowering-fruitdevelopment-plantdead': 'median'
     }
     n_solutions = {
-        'all_phases': 5000,
+        'all-phases': 5000,
         'germination-endoftillering': 100,
         'stemelongation-endofheading': 5000,
         'flowering-fruitdevelopment-plantdead': 5000
     }
     lut_sizes = {
-        'all_phases': 50000,
+        'all-phases': 50000,
         'germination-endoftillering': 10000,
         'stemelongation-endofheading': 50000,
         'flowering-fruitdevelopment-plantdead': 50000
