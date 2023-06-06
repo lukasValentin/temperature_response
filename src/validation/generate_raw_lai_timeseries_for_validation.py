@@ -213,7 +213,7 @@ if __name__ == '__main__':
     out_dir.mkdir(exist_ok=True)
 
     farms = ['Strickhof', 'SwissFutureFarm']  # possibly add 'Witzwil'
-    years = [2022]  # , 2023]
+    years = [2022, 2023]
 
     extract_raw_lai_timeseries(
         test_sites_dir=test_sites_dir,

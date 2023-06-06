@@ -270,6 +270,9 @@ def get_s2_spectra(
         res_dir_scene = output_dir.joinpath(metadata['product_uri'].iloc[0])
         if not str(res_dir_scene).endswith('.SAFE'):
             res_dir_scene = Path(str(res_dir_scene) + '.SAFE')
+        if res_dir_scene.exists():
+            logger.info(f'{res_dir_scene.name} exists already')
+            continue
         res_dir_scene.mkdir(exist_ok=True)
 
         # save S2 spectra to disk for analysis

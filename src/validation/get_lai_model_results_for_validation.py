@@ -140,7 +140,7 @@ if __name__ == '__main__':
     insitu_dir = Path('./data/in-situ')
 
     # years with in-situ data
-    years = [2022]  # [2022, 2023]
+    years = [2022, 2023]
 
     get_lai_model_results_for_validation(
         trait_dir=trait_dir, insitu_dir=insitu_dir, years=years,

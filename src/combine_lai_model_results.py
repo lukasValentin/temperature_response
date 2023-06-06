@@ -196,6 +196,10 @@ def combine_lai_model_results(
                             f'{scene} does not overlap parcel')
                         continue
 
+                    # continue if everything is masked
+                    if trait_ds['lai'].values.mask.all():
+                        continue
+
                     # plot as map
                     f = plot_observation(trait_ds=trait_ds)
                     f.suptitle(
@@ -252,25 +256,19 @@ def combine_lai_model_results(
                         f'{record["name"]} {scene}')
 
                 # save LAI statistics per parcel and season
-                parcel_season_stats = pd.DataFrame(parcel_season_stats_list)
-                parcel_season_stats.sort_values(by='agdd', inplace=True)
-                parcel_season_stats.dropna(inplace=True)
-                # in case of overlapping S2 tiles there might be more than one
-                # value per sensing date. Since the atmospheric correction
-                # works per S2 tile there might be differences in the
-                # spectral and radiometric data and hence LAI values that
-                # one obtains for the same location and day from different S2
-                # tiles.
-                # here, we use the average of these two values to get a single
-                # value per location and day
-                stats_agg = parcel_season_stats.groupby(
-                    by=['agdd', 'das', 'sensing_date']).mean()
-                stats_agg = stats_agg.reset_index()
+                try:
+                    parcel_season_stats = pd.DataFrame(
+                        parcel_season_stats_list)
+                    parcel_season_stats.sort_values(by='agdd', inplace=True)
+                    parcel_season_stats.dropna(inplace=True)
+                except KeyError:
+                    continue
                 fpath_parcel_season_stats = s2_trait_dir_site.joinpath(
                     f'{schedule["name"]}_{sowing_date.date()}'
                     f'-{harvest_date.date()}_lai.csv'
                 )
-                stats_agg.to_csv(fpath_parcel_season_stats, index=False)
+                parcel_season_stats.to_csv(fpath_parcel_season_stats,
+                                           index=False)
                 # plot time series
                 f, ax = plt.subplots(ncols=2, nrows=1, sharey=True,
                                      figsize=(20, 10))
@@ -280,15 +278,15 @@ def combine_lai_model_results(
                     'Accumulated Growing Degree Days [deg C d]']
                 for idx, time_type in enumerate(time_types):
                     ax[idx].plot(
-                        stats_agg[time_type],
-                        stats_agg['median'],
+                        parcel_season_stats[time_type],
+                        parcel_season_stats['median'],
                         marker='x',
                         label='Median'
                     )
                     ax[idx].fill_between(
-                        stats_agg[time_type],
-                        stats_agg['percentile_10'],
-                        stats_agg['percentile_90'],
+                        parcel_season_stats[time_type],
+                        parcel_season_stats['percentile_10'],
+                        parcel_season_stats['percentile_90'],
                         label='10-90% Quantile Spread',
                         color='orange',
                         alpha=.3
@@ -308,6 +306,12 @@ def combine_lai_model_results(
 
 
 if __name__ == '__main__':
+
+    import os
+    cwd = Path(__file__).absolute().parent
+    os.chdir(cwd)
+
+    # TODO: update meteo data for SFF and Strickhof till June 2023
 
     test_sites_dir = Path('../data/Test_Sites')
     s2_trait_dir = Path(

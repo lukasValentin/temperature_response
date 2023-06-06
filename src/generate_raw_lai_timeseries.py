@@ -118,16 +118,14 @@ def extract_raw_lai_timeseries(
                     lambda x: x.exists()
                 )
 
-            # also include the two scenes before and after the identified
+            # also include the one scene before and after the identified
             # period
             # to account for the uncertainty in the identification of the
             # period
             s2_obs_parcel['number'] = [
                 x for x in range(s2_obs_parcel.shape[0])]
 
-            for ii in range(1, 3):
-                # TODO: This clause can be removed once the issue with the
-                # 2023 data is solved
+            for ii in range(1, 2):
                 try:
                     scene_before = s2_obs_parcel[
                         s2_obs_parcel.result_exists]['number'][0] - ii
