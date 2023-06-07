@@ -62,12 +62,6 @@ def extract_s2_traits(
             # load the Sentinel-2 data
             fpath_s2_raster = scene_dir.joinpath('SRF_S2.tiff')
 
-            # TODO: This is just used to clean up a bit
-            if not fpath_s2_raster.exists():
-                # remove the directory
-                shutil.rmtree(scene_dir)
-                continue
-
             s2_ds = RasterCollection.from_multi_band_raster(
                 fpath_raster=fpath_s2_raster)
             bands = s2_ds.band_names
