@@ -311,8 +311,6 @@ if __name__ == '__main__':
     cwd = Path(__file__).absolute().parent
     os.chdir(cwd)
 
-    # TODO: update meteo data for SFF and Strickhof till June 2023
-
     test_sites_dir = Path('../data/Test_Sites')
     s2_trait_dir = Path(
         '/home/graflu/public/Evaluation/Projects/KP0031_lgraf_PhenomEn/04_LaaL/S2_Traits')   # noqa: E501
