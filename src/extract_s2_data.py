@@ -270,9 +270,9 @@ def get_s2_spectra(
         res_dir_scene = output_dir.joinpath(metadata['product_uri'].iloc[0])
         if not str(res_dir_scene).endswith('.SAFE'):
             res_dir_scene = Path(str(res_dir_scene) + '.SAFE')
-        # if res_dir_scene.exists():
-        #     logger.info(f'{res_dir_scene.name} exists already')
-        #     continue
+        if res_dir_scene.exists():
+            logger.info(f'{res_dir_scene.name} exists already')
+            continue
         res_dir_scene.mkdir(exist_ok=True)
 
         # save S2 spectra to disk for analysis
@@ -338,7 +338,8 @@ if __name__ == '__main__':
     # RTM configurations for lookup-table generation
     rtm_lut_config = {
         'lut_size': 50000,
-        'fpath_srf': fpath_srf,
+        'fpath_srf': fpath_srf,t
+        ime_end = pd.to_datetime('2019-09-30 23:59:00')
         'remove_invalid_green_peaks': True,
         'sampling_method': 'FRS',
         'linearize_lai': False
@@ -373,8 +374,6 @@ if __name__ == '__main__':
         df.harvest_date = pd.to_datetime(df.harvest_date)
         time_start = df.sowing_date.min()
         time_end = df.harvest_date.max()
-
-        time_end = pd.to_datetime('2019-09-30 23:59:00')
 
         # setup S2 Mapper
         s2_mapper_config = MapperConfigs(
